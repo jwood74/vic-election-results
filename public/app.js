@@ -14,19 +14,21 @@ const time = n => n ? new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Me
 const cell = (value, classes = '') => `<td class="num ${classes}">${/^[+−-]?0(?:\.0+)?(?:%| pp)?$/.test(value) ? `<span class="zero-value">${value}</span>` : value}</td>`;
 const table = (labels, body, name, cls = '', textColumns = 1) => `<div class="scroll" tabindex="0" role="region" aria-label="${esc(name)}"><table class="${cls}" aria-label="${esc(name)}"><thead><tr>${labels.map((h,i) => `<th scope="col"${i >= textColumns ? ' class="num"' : ''}>${h}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>`;
 const empty = text => `<p class="empty muted">${text}</p>`;
-const districtHref = id => `?district=${encodeURIComponent(id)}`;
+const districtHref = id => `?district=${encodeURIComponent(id)}${demo ? '&demo=1' : ''}`;
 const json = async url => {
   const res = await fetch(url, { signal: AbortSignal.timeout(25_000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 };
 const params = new URLSearchParams(location.search);
+const demo = params.get('demo') === '1';
 const id = params.get('district');
 const expanded = id !== null && params.get('view') === 'booths';
 let roster = {}, snapshot, boothData, history, tcpHistory, comparisonHistory, busy = false, invalid = false, dialogRefreshPending = false;
 const views = { search: '', watched: false, sort: 'name', boothSearch: params.get('q') ?? '', boothSort: params.get('sort') === 'votes' ? 'votes' : 'name', boothUnits: ['votes','swing'].includes(params.get('units')) ? params.get('units') : 'share', districtParty: '', boothParty: params.get('party') ?? '' };
 function boothHref(district, full = expanded, keepParty = true) {
   const query = new URLSearchParams({ district });
+  if (demo) query.set('demo','1');
   if (full) query.set('view','booths');
   if (views.boothSearch) query.set('q',views.boothSearch);
   if (views.boothSort !== 'name') query.set('sort',views.boothSort);
@@ -39,7 +41,7 @@ function syncBoothLink() {
   if (link) link.href = boothHref(id, !expanded);
   if (expanded) window.history.replaceState(null, '', boothHref(id));
 }
-const watchKey = 'vic-votes-2026-watchlist';
+const watchKey = demo ? 'vic-votes-2026-demo-watchlist' : 'vic-votes-2026-watchlist';
 let watched = new Set();
 try { watched = new Set(JSON.parse(localStorage.getItem(watchKey) ?? '[]')); } catch {}
 function toggle(id) {
@@ -119,7 +121,7 @@ function districtView() {
   <section id="booths">${expanded ? '' : `<div class="booth-heading">${heading('02 / VOTING CENTRES','Booth results','First preferences and two-candidate-preferred (TCP) results by voting centre.')}<a id="booth-size" class="outline" href="${esc(boothHref(id,true))}">⤢ Maximise booth table</a></div>`}
     ${!expanded && boothData?.tcpPreview ? '<p class="notice warn">TCP swing preview: simulated TCP votes compared with the official 2022 booth count. First preferences are from the 2022 archive.</p>' : ''}
     <div class="tools">${expanded ? `<label for="booth-district">Electorate</label><select id="booth-district">${Object.entries(roster).sort(([,a],[,b]) => a.localeCompare(b)).map(([key,name]) => `<option value="${esc(key)}"${key === id ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select>` : ''}<input type="search" id="booth-search" placeholder="Search voting centres" aria-label="Search voting centres" value="${esc(views.boothSearch)}"><select id="booth-sort" aria-label="Sort voting centres"><option value="name">Booth A–Z</option><option value="votes">Most votes</option></select><select id="booth-units" aria-label="Booth vote display"><option value="share">Vote share (%)</option><option value="votes">Vote counts</option><option value="swing">Swing</option></select>${expanded ? `${historical ? `<span class="meta booth-preview">${boothData?.tcpPreview ? '2022 archive · Simulated TCP' : '2022 archive'}</span>` : ''}<div class="booth-actions"><a id="booth-size" class="outline" href="${esc(boothHref(id,false))}">↙ Back to district view</a></div>` : ''}</div>
-    ${available && boothData.booths.length ? `<div id="booth-list" class="card"></div><p id="booth-swing-note" class="meta" hidden></p><p class="meta">${historical ? '' : `Swing is in percentage points against ${id === 'narracan' ? 'the 2023 supplementary election' : '2022'}. TCP requires the same two sides; ~ marks a nearby booth, spatial estimate or district proxy. `} ${boothData.tcp?.status === 'withheld' ? 'The VEC is withholding TCP. ' : boothData.tcp?.status === 'unavailable' ? 'The TCP page could not be read. ' : !boothData.tcp?.booths?.length ? 'No booth TCP available yet. ' : ''}Booth pages checked ${esc(time(boothData.at))} Melbourne time · <a href="${esc(boothData.source)}">VEC first preferences ↗</a>${boothData.tcp?.source ? ` · <a href="${esc(boothData.tcp.source)}">VEC TCP ↗</a>` : ''}</p>` : `<div class="card">${empty(boothData?.status === 'unavailable' ? 'The voting-centre page could not be read. Try refreshing.' : 'No voting-centre rows available yet.')}</div>`}
+    ${available && boothData.booths.length ? `<div id="booth-list" class="card"></div><p id="booth-swing-note" class="meta" hidden></p><p class="meta">${historical ? '' : `Swing is in percentage points against ${id === 'narracan' ? 'the 2023 supplementary election' : '2022'}. TCP requires the same two sides; ~ marks a nearby booth, spatial estimate or district proxy. `}${demo ? 'Demo counts use selected historical booths.' : `${boothData.tcp?.status === 'withheld' ? 'The VEC is withholding TCP. ' : boothData.tcp?.status === 'unavailable' ? 'The TCP page could not be read. ' : !boothData.tcp?.booths?.length ? 'No booth TCP available yet. ' : ''}Booth pages checked ${esc(time(boothData.at))} Melbourne time · <a href="${esc(boothData.source)}">VEC first preferences ↗</a>${boothData.tcp?.source ? ` · <a href="${esc(boothData.tcp.source)}">VEC TCP ↗</a>` : ''}`}</p>` : `<div class="card">${empty(demo ? 'No demo counts for this district. Try Bass, Gippsland East, Hawthorn, Melbourne, Northcote or Richmond.' : boothData?.status === 'unavailable' ? 'The voting-centre page could not be read. Try refreshing.' : 'No voting-centre rows available yet.')}</div>`}
   </section><dialog id="booth-dialog" aria-labelledby="venue-name"><div id="booth-result"></div><form method="dialog"><button class="outline">Close</button></form></dialog>`;
 }
 
@@ -197,7 +199,7 @@ function render() {
 }
 
 async function refresh() {
-  if (busy || invalid) return;
+  if (demo || busy || invalid) return;
   busy = true;
   $('refresh').disabled = true;
   let message, warning = false;
@@ -219,7 +221,8 @@ async function refresh() {
     boothData = { status:'unavailable' };
     message = 'The results service could not be reached.' + (snapshot?.results?.length ? ' Showing the last available snapshot.' : ''); warning = true;
   } finally {
-    $('status').textContent = message;
+    $('status-message').textContent = message;
+    $('demo-link').hidden = snapshot?.status !== 'waiting' || warning;
     $('status').hidden = expanded && snapshot?.status === 'archive' && !warning;
     $('status').classList.toggle('warn', warning);
     render();
@@ -270,13 +273,21 @@ $('content').addEventListener('change', e => {
 $('content').addEventListener('close', e => { if (e.target.id === 'booth-dialog' && dialogRefreshPending) { dialogRefreshPending = false; render(); } }, true);
 
 try {
+  if (demo) {
+    $('demo-banner').hidden = false;
+    $('status').hidden = true;
+    $('refresh').hidden = true;
+    document.querySelector('.brand').href = '?demo=1';
+    $('back').href = '?demo=1';
+    document.title = `Demo · ${document.title}`;
+  }
   roster = await json('data/districts.json');
   if (id !== null && !Object.hasOwn(roster, id)) {
-    invalid = true; $('status').textContent = 'Unknown district.'; $('back').hidden = false; $('refresh').hidden = true;
+    invalid = true; $('status').hidden = false; $('status-message').textContent = 'Unknown district.'; $('back').hidden = false; $('refresh').hidden = true;
   } else {
     if (id) {
       if (expanded) document.body.classList.add('booths-expanded');
-      $('back').hidden = false; $('title').textContent = roster[id]; document.title = `${roster[id]} · Victoria Votes 2026`;
+      $('back').hidden = false; $('title').textContent = roster[id]; document.title = `${demo ? 'Demo · ' : ''}${roster[id]} · Victoria Votes 2026`;
       $('kicker').textContent = 'LEGISLATIVE ASSEMBLY · DISTRICT RESULTS';
       $('subtitle').textContent = 'District totals, local voting centres and booth-matched swing.';
       $('navigation').innerHTML = '<a href="#district-count">District count</a><a href="#booths">Voting centres</a>';
@@ -285,11 +296,23 @@ try {
         $('subtitle').hidden = true;
         $('navigation').hidden = true;
       }
-      Promise.all(['history-2022.json','tcp-2022.json','booth-comparisons.json'].map(file => json(`data/${file}`).catch(() => undefined)))
-        .then(data => { [history,tcpHistory,comparisonHistory] = data; render(); });
     }
-    render();
-    await refresh();
-    setInterval(() => { if (!document.hidden) refresh(); }, 60_000);
+    const historyFiles = ['history-2022.json','tcp-2022.json','booth-comparisons.json'];
+    if (demo) {
+      const [{buildDemo,demoIndex},data] = await Promise.all([import('./demo.js'),Promise.all(historyFiles.map(file => json(`data/${file}`)))]);
+      [history,tcpHistory,comparisonHistory] = data;
+      const scenario = buildDemo(history,tcpHistory);
+      snapshot = scenario.snapshot;
+      boothData = scenario.details.get(id);
+      $('official').textContent = 'Historical baseline ↗';
+      $('official').href = demoIndex;
+      render();
+    } else {
+      if (id) Promise.all(historyFiles.map(file => json(`data/${file}`).catch(() => undefined)))
+        .then(data => { [history,tcpHistory,comparisonHistory] = data; render(); });
+      render();
+      await refresh();
+      setInterval(() => { if (!document.hidden) refresh(); }, 60_000);
+    }
   }
-} catch { $('status').textContent = 'The district list could not be loaded. Try reloading this page.'; }
+} catch { $('status').hidden = false; $('status-message').textContent = demo ? 'The demo could not be loaded. Try reloading this page.' : 'The district list could not be loaded. Try reloading this page.'; }
