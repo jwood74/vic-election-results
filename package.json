@@ -1,0 +1,8 @@
+{
+  "name": "vic-election-results",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": { "dev": "node --watch scripts/dev.mjs", "test": "node --test", "check:source": "node scripts/check-source.mjs" },
+  "dependencies": { "@netlify/blobs": "^10.0.0", "cheerio": "^1.1.2" }
+}

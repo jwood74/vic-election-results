@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Victoria Votes 2026 — Election results</title>
+  <meta name="description" content="Track the Victorian lower-house election count, district races and booth-matched swing from 2022.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='16' fill='%231c5345'/%3E%3Ctext x='16' y='23' text-anchor='middle' font-size='20' fill='white'%3EV%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" type="module"></script>
+</head>
+<body>
+  <header class="mast wrap"><a class="brand" href="./"><span class="mark" aria-hidden="true">V</span> VICTORIA VOTES</a><span class="edition">STATE ELECTION <b>2026</b></span></header>
+  <main class="wrap" id="main">
+    <noscript>This dashboard needs JavaScript. <a href="https://www.vec.vic.gov.au/results/state-election-results">Visit the official VEC results.</a></noscript>
+    <div class="hero">
+      <div><a id="back" href="./" hidden>← All districts</a><p class="eyebrow" id="kicker">SATURDAY 28 NOVEMBER · LEGISLATIVE ASSEMBLY</p><h1 id="title">Victoria election results</h1><p class="subtitle" id="subtitle">Follow the lower-house count, from statewide totals to your local booth.</p></div>
+      <button class="outline" id="refresh" type="button">↻ Refresh results</button>
+    </div>
+    <nav id="navigation" aria-label="On this page"><a href="#statewide">Statewide</a><a href="#districts">Districts</a></nav>
+    <div id="status" class="notice" role="status">Checking for published VEC results…</div>
+    <div id="content"></div>
+  </main>
+  <footer class="wrap"><span>VICTORIA VOTES 2026</span><span>Independent results dashboard · <a id="official" href="https://www.vec.vic.gov.au/results/state-election-results">Official VEC results ↗</a></span></footer>
+</body>
+</html>

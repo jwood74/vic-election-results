@@ -1,0 +1,11 @@
+node_modules/
+.netlify/
+.playwright-mcp/
+.env*
+.DS_Store
+__pycache__/
+booth-match-audit.csv
+booth-map-snapshot.json
+booth-match-estimates.json
+booth-match-audit-coordinates.csv
+booth-match-estimates-coordinates.json
