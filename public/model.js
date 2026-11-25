@@ -31,11 +31,21 @@ export function partyVotes(candidates, votes = candidates.map(c => c.votes), gro
   return totals;
 }
 
+export function partySwing(current, historical) {
+  const now = sum([...current.values()]), then = sum([...historical.values()]);
+  if (!now || !then) return new Map();
+  return new Map([...new Set([...current.keys(), ...historical.keys()])].map(party => [party,
+    share(current.get(party) ?? 0, now) - share(historical.get(party) ?? 0, then)]));
+}
+
 export function race(row) {
   const pair = row?.twoStatus === 'reported' ? [...row.two].sort((a, b) => b.votes - a.votes) : [];
   const valid = pair.length === 2 && pair.every(c => Number.isSafeInteger(c.votes)) && sum(pair.map(c => c.votes)) > 0;
   const votes = valid ? pair[0].votes - pair[1].votes : null;
-  return { leader: valid && votes > 0 ? pair[0] : null, gap: valid ? share(votes, sum(pair.map(c => c.votes))) : null, votes, tied: valid && votes === 0 };
+  const gap = valid ? share(votes, sum(pair.map(c => c.votes))) : null;
+  // The whole-vote majority margin counts votes above floor(total / 2).
+  return { leader: valid && votes > 0 ? pair[0] : null, gap, votes, tied: valid && votes === 0,
+    margin: valid ? gap / 2 : null, marginVotes: valid ? Math.ceil(votes / 2) : null };
 }
 
 export function statewide(rows) {
@@ -86,6 +96,16 @@ export function matchedTcp(current, historical) {
     result.set(key, { votes: booth.votes, shares, swing });
   }
   return result;
+}
+
+export function districtTcpSwing(row, historical, leader) {
+  if (row?.twoStatus !== 'reported' || !leader || !historical?.districtTotal) return null;
+  const pair = row.two;
+  const index = pair.findIndex(c => c.name === leader.name);
+  if (index < 0) return null;
+  const total = votes => ({kind:'district',name:'total',votes});
+  return matchedTcp({status:'ok',pair,booths:[total(pair.map(c => c.votes))]},
+    {pair:historical.pair,booths:[total(historical.districtTotal)]}).get('district:total')?.swing[index] ?? null;
 }
 
 export function boothComparisons(booths, fp = [], tcp, extras = {}, currentTcp) {

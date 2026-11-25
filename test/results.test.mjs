@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { districts, districtLinks, EXPECTED, collect, parseBooths, parseDistrict, parseTcpBooths } from '../lib/vec.mjs';
-import { boothComparisons, electorateSwing, matchedSwing, matchedTcp, partyAbbreviation, race, statewide } from '../public/model.js';
+import { boothComparisons, districtTcpSwing, electorateSwing, matchedSwing, matchedTcp, partyAbbreviation, partySwing, partyVotes, race, statewide } from '../public/model.js';
 
 const bass = `${EXPECTED}/results-by-district/bass-district-results`;
 const evelyn = `${EXPECTED}/results-by-district/evelyn-district-results`;
@@ -14,6 +14,11 @@ test('2CP leads, withheld data, zero counts and declarations stay distinct', () 
   const live = parseDistrict(page(resultTable('2CP votes',550,450)), bass);
   assert.equal(race(live).leader.name, 'ONE, A');
   assert.equal(race(live).gap, 10);
+  assert.equal(race(live).margin, 5);
+  assert.equal(race(live).marginVotes, 50);
+  const odd = race(parseDistrict(page(resultTable('2CP votes',501,500)), bass));
+  assert.equal(odd.marginVotes, 1);
+  assert.equal(race(parseDistrict(page(resultTable('2CP votes',50,50)), bass)).marginVotes, 0);
   assert.equal(statewide([live]).list[0].label, 'Liberal'); // first-preference leader is different
   const hidden = parseDistrict(page(`Results withheld ${resultTable('2CP votes',550,450)}`), bass);
   assert.equal(hidden.twoStatus, 'withheld');
@@ -23,6 +28,22 @@ test('2CP leads, withheld data, zero counts and declarations stay distinct', () 
   const declared = parseDistrict(page('', '<h3>Elected member</h3><p><strong>ONE, A</strong></p>'), bass);
   assert.equal(statewide([declared]).declared, 1);
   assert.equal(statewide([declared]).leading, 0);
+});
+
+test('party swing uses share of formal votes and compares parties entering or leaving the race', () => {
+  const previous = partyVotes([{party:'Australian Labor Party',votes:40},{party:'Liberal',votes:60}]);
+  const current = partyVotes([{party:'Labor',votes:100},{party:'Greens',votes:100}]);
+  assert.deepEqual([...partySwing(current,previous)], [['Labor',10],['Greens',50],['Liberal',-60]]);
+  assert.equal(partySwing(current,new Map()).size, 0);
+});
+
+test('district TCP swing follows the current leader across a reversal in the historical pair', () => {
+  const row = parseDistrict(page(resultTable('2CP votes',550,450)), bass);
+  const leader = race(row).leader;
+  const prior = {pair:[{party:'Liberal'},{party:'Labor'}],districtTotal:[60,40]};
+  assert.equal(districtTcpSwing(row,prior,leader), 15);
+  assert.equal(districtTcpSwing(row,{...prior,pair:[{party:'Greens'},{party:'Labor'}]},leader), null);
+  assert.equal(districtTcpSwing({...row,twoStatus:'withheld'},prior,leader), null);
 });
 
 test('uses only linked known districts and keeps a marked stale previous row after a failed read', async () => {
@@ -43,6 +64,9 @@ test('booth parser joins by candidate name and separates early and ordinary venu
   const parsed = parseBooths(html, fp);
   assert.equal(parsed.candidates[0].party, 'Liberal');
   assert.deepEqual(parsed.booths, [{name:'Bass',kind:'ordinary',votes:[12,105]}, {name:'Bass',kind:'early',votes:[30,25]}]);
+  assert.deepEqual(parsed.pooled, [{kind:'other-early',name:'Other prepoll votes',votes:[77,11]}, {kind:'postal',name:'Postal votes',votes:[33,33]}]);
+  const pooledOnly = html.replace(line('Bass',[30,25,2,57]), '').replace(line('Declaration votes',[]), line('Early votes total',[77,11,2,90]) + line('Declaration votes',[])).replace('</tbody>',line('Declaration votes total',[33,33,2,68]) + '</tbody>');
+  assert.deepEqual(parseBooths(pooledOnly,fp).pooled.map(b => b.kind), ['early-total','postal']);
   assert.throws(() => parseBooths(html.replace('119','120'), fp), /Invalid booth totals/);
 });
 
@@ -71,6 +95,10 @@ test('TCP parser uses the separate candidate pair and excludes aggregates, dupli
   const parsed = parseTcpBooths(html,row,venues);
   assert.deepEqual(parsed.pair.map(c => c.party), ['Liberal', 'Australian Labor Party - Victorian Branch']);
   assert.deepEqual(parsed.booths, [{name:'Bass',kind:'ordinary',votes:[70,30]}, {name:'Election Centre',kind:'early',votes:[70,30]}]);
+  const archive = html.replace(cells('Election Centre',numbers),cells('Postal votes',numbers) + cells('Declaration votes total',numbers));
+  assert.deepEqual(parseTcpBooths(archive,row,venues).pooled, [
+    {kind:'early-total',name:'Prepoll total',votes:[70,30]}, {kind:'postal',name:'Postal votes',votes:[70,30]},
+  ]);
 });
 
 test('TCP swing aligns reversed candidate order and rejects different sides or vote categories', () => {

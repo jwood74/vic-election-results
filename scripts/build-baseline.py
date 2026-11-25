@@ -79,11 +79,21 @@ def main():
     if list(next(records).values()) != ['Electorate', 'Count phase', 'Count type', 'Polling place', 'Candidate name', 'Ballot order', 'Party name', 'Vote type new', 'Votes']:
         raise ValueError('Unexpected workbook headers')
     booths = defaultdict(dict)
+    totals = defaultdict(Counter)
+    pooled = defaultdict(lambda: defaultdict(Counter))
+    formal_types = {'Ordinary', 'Early Votes', 'Absent Votes', 'Postal Votes', 'Provisional Votes', 'Marked As Voted'}
+    pool_ids = {'Early Votes': 'early-total', 'Absent Votes': 'absent', 'Postal Votes': 'postal',
+                'Provisional Votes': 'provisional', 'Marked As Voted': 'marked'}
     for r in records:
         if (r['B'], r['C']) != ('Recheck', 'First Preference'):
             raise ValueError('Workbook contains unexpected count stage')
         if int(r['F']) >= 998:
             continue  # Informal and overall total, not candidate votes
+        if r['H'] not in formal_types:
+            raise ValueError(f'Unexpected formal vote category: {r}')
+        totals[ids[key(r['A'])]][r['G']] += int(r['I'])
+        if r['H'] in pool_ids:
+            pooled[ids[key(r['A'])]][pool_ids[r['H']]][r['G']] += int(r['I'])
         kind = {'Ordinary': 'ordinary', 'Early Votes': 'early'}.get(r['H'])
         if not kind or key(r['D']) in {'otherearlyvotes', 'earlyvotes', 'earlyvotestotal', 'allvotes', 'mobilevoting', 'mobileearlyvoting', 'mobilevotes'} or 'mobile voting' in r['D'].lower():
             continue
@@ -97,7 +107,11 @@ def main():
     history = {'source': WORKBOOK, 'sha256': hashlib.sha256(raw).hexdigest(), 'districts': {
         slug: [[kind, name, dict(sorted(party.items()))] for (kind, name), (party, _) in sorted(places.items())]
         for slug, places in sorted(booths.items())}}
-    for filename, data in [('districts.json', districts), ('history-2022.json', history)]:
+    district_history = {'source': WORKBOOK, 'sha256': history['sha256'], 'districts': {
+        slug: dict(sorted(party.items())) for slug, party in sorted(totals.items())}, 'pooled': {
+        slug: {kind: dict(sorted(party.items())) for kind, party in sorted(pools.items())}
+        for slug, pools in sorted(pooled.items())}}
+    for filename, data in [('districts.json', districts), ('history-2022.json', history), ('district-totals-2022.json', district_history)]:
         target = ROOT / filename
         output = json.dumps(data, ensure_ascii=False, separators=(',', ':')) + '\n'
         if args.check:

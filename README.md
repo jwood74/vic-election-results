@@ -2,9 +2,13 @@
 
 Independent, table-first tracker for Victoria's Legislative Assembly election on Saturday 28 November 2026. It covers all 88 districts, party first preferences, provisional 2CP leads, declarations, a browser-local watchlist and voting-centre drill-downs. The majority threshold is 45 seats.
 
-District and booth tables use abbreviated, party-coloured headers and pinned name cells. Click a party heading to sort by its result. The booth table can switch between counts and shares for first preferences and TCP. Swing stays in percentage points.
+District and booth tables use abbreviated, party-coloured headers and pinned name cells. Click a party heading to sort by its result. The district table can show first-preference percentages, votes or swings; the booth table can switch between counts and shares for first preferences and TCP. Swing stays in percentage points. The closest TCP races show the leading share above 50% and the number of votes above half of the TCP count, rounded up to a whole vote.
+
+The district table shows the current TCP leader's share and swing against the published historical TCP count when both sides match. Declared districts are marked beside their names.
 
 Choose **Maximise booth table** for a full-width view with an electorate selector. Search, sort and the display mode carry over when opening or closing the view, and when switching electorates. A party-column sort is specific to its electorate and resets when switching electorates.
+
+The maximised view pins the published district count above the booth rows and can filter to election-day booths, declaration votes or rows with reported results. Published postal, absent, provisional and other pooled vote categories can be searched, sorted and opened like booths. Prepoll appears by centre when available or as a pooled total; the TCP page may publish only the pooled prepoll figure. Pooled swings compare the same vote category, with TCP swing requiring the same two sides.
 
 ## Preview locally
 
@@ -29,6 +33,8 @@ Import the repo into Netlify and publish a production deploy using `netlify.toml
 ## 2022 booth baseline
 
 The source is the official VEC [2022 statewide lower-house recheck workbook](https://www.vec.vic.gov.au/-/media/c4665365795d431e811d0ce818e373d4.xlsx). The dashboard roster comes from the [2026 district nominations list](https://www.vec.vic.gov.au/voting/2026-state-election/find-candidates). Rebuild both with `python3 scripts/build-baseline.py`, or check the versioned data with `python3 scripts/build-baseline.py --check`. The historical file contains the workbook SHA-256. Narracan has a 2026 district page but no baseline in this workbook: its election was held separately.
+
+Landing-page swings use the workbook's full formal district totals. Statewide swing is vote-weighted across the same set of currently reporting districts with 2022 totals; statewide Share still includes all fresh results. The demo compares its simulated counts with the same selection of historical booths and pooled vote categories.
 
 Matches require a unique normalised booth label within the same district and vote category. Early and ordinary voting stay separate. No fuzzy match, booth address verification, or boundary reconstruction is applied. Votes from unmatched booths, mobile and pooled/declaration categories are excluded from both matched denominators; informal votes never enter a party share. Independent votes stay in denominators, but the dashboard does not equate independent candidates across elections. The display reports matched venues and their share of formal votes in the displayed venue rows. Nothing is inferred about outstanding votes or winners from the swing estimate.
 

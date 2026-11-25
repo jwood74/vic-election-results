@@ -31,7 +31,8 @@ const partyTotals = counts => {
   return Object.fromEntries(votes);
 };
 districts.narracan = { year:2023, source, estimates:[], fp:data.booths.map(b => [b.kind,b.name,partyTotals(b.votes)]),
-  ...(data.earlyPool ? {fpEarlyPool:partyTotals(data.earlyPool)} : {}), tcp:{pair:data.tcp.pair,booths:data.tcp.booths,earlyPool:data.tcp.earlyPool} };
+  pooled:Object.fromEntries(data.pooled.map(b => [b.kind,partyTotals(b.votes)])),
+  ...(data.earlyPool ? {fpEarlyPool:partyTotals(data.earlyPool)} : {}), tcp:{pair:data.tcp.pair,booths:data.tcp.booths,earlyPool:data.tcp.earlyPool,pooled:data.tcp.pooled,districtTotal:data.tcp.districtTotal} };
 const sorted = Object.fromEntries(Object.entries(districts).sort(([a],[b]) => a.localeCompare(b)));
 await writeFile(fromRoot('public/data/booth-comparisons.json'), `${JSON.stringify({districts:sorted})}\n`);
 console.log(`${Object.values(districts).reduce((n,d) => n+d.estimates.length,0)} spatial baselines; ${Object.values(districts).reduce((n,d) => n+(d.moved?.length ?? 0),0)} moved labels; ${data.booths.length} Narracan booths.`);
