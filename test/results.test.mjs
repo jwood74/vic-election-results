@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { districts, districtLinks, EXPECTED, collect, parseBooths, parseDistrict, parseFinalResult, parseTcpBooths } from '../lib/vec.mjs';
+import { districts, districtLinks, EXPECTED, collect, loadBooths, parseBooths, parseDistrict, parseFinalResult, parseTcpBooths } from '../lib/vec.mjs';
+import { strToU8, zipSync } from 'fflate';
 import { boothComparisons, boothMatchedTcpSwing, districtTcpSwing, electorateSwing, finalTcp, historicalBoothTcp, matchedSwing, matchedTcp, partyAbbreviation, partySwing, partyVotes, race, statewide } from '../public/model.js';
 import historical from '../public/data/historical-results.json' with { type:'json' };
 import archiveTcp from '../public/data/tcp-2022.json' with { type:'json' };
@@ -107,6 +108,40 @@ test('reads mixed-case live links, party-first TCP, and single-row booth heading
   const tcp = parseTcpBooths(venuePage(['Miss-sorts','Informal votes','Total votes polled'],[12,18,2,1,33]),district,fp.booths);
   assert.deepEqual(tcp.pair.map(c => c.party),district.fp.map(c => c.party));
   assert.deepEqual(tcp.booths,[{name:'Alma',kind:'ordinary',votes:[12,18]}]);
+});
+
+test('keeps both VEC booth TCP links when the Excel fallback appears first', () => {
+  const report = '-/media/37225e6c3bb04220902879ddfaedf5c2.ashx';
+  const tcp = `${bass}/Bass-2CP-results-by-voting-centre`;
+  const html = page(`${resultTable('Preferred votes',520,480)}
+    <p>There's currently an issue with our 2-candidate-preferred results by voting centre page.</p>
+    <a href="${report}">Download 2CP results by voting centre report</a>
+    <a href="${tcp}">Two candidate preferred results by voting centre</a>`);
+  const row = parseDistrict(html,bass);
+  assert.equal(row.tcpUrl,tcp);
+  assert.equal(row.tcpReportUrl,`https://www.vec.vic.gov.au/${report}`);
+  assert.equal(row.tcpPageIssue,true);
+});
+
+test('404 booth TCP falls back to the spreadsheet and marks out-of-sync counts stale', async () => {
+  const cells = (i, values) => `<row r="${i}">${Object.entries(values).map(([col,v]) => typeof v === 'number'
+    ? `<c r="${col}${i}"><v>${v}</v></c>` : `<c r="${col}${i}" t="inlineStr"><is><t>${v}</t></is></c>`).join('')}</row>`;
+  const workbook = zipSync({'xl/worksheets/sheet1.xml':strToU8(`<worksheet><sheetData>
+    ${cells(1,{A:'Two Candidate Preferred Summary'})}
+    ${cells(7,{C:'ONE, A',D:'TWO, B',E:'Mis-sorts',G:'Informal Votes',H:'Total'})}
+    ${cells(10,{B:'Bass',C:55,D:45,E:0,G:2,H:102})}
+    ${cells(14,{B:'TOTAL ALL VOTE TYPES',C:55,D:45,E:0,G:2,H:102})}
+  </sheetData></worksheet>`)});
+  const row = {...parseDistrict(page(resultTable('Preferred votes',60,50)),bass),tcpUrl:`${bass}/tcp`,tcpReportUrl:'test-report'};
+  const fp = '<main><table><thead><tr><th></th><th>ONE, A</th><th>TWO, B</th><th>Informal votes</th><th>Total votes polled</th></tr></thead><tbody><tr><th>Ordinary votes</th></tr><tr><th>Bass</th><td>50</td><td>45</td><td>2</td><td>97</td></tr></tbody></table></main>';
+  const get = async url => url === row.boothUrl ? fp : null;
+  const detail = await loadBooths(row,get,async () => workbook);
+  assert.deepEqual(detail.tcp.booths,[{name:'Bass',kind:'ordinary',votes:[55,45]}]);
+  assert.equal(detail.tcp.httpStatus,404);
+  assert.equal(detail.tcp.spreadsheet,true);
+  assert.equal(detail.tcp.stale,true);
+  const current = {...row,two:row.two.map((c,i) => ({...c,votes:[55,45][i]}))};
+  assert.equal((await loadBooths(current,get,async () => workbook)).tcp.stale,undefined);
 });
 
 test('final preference distribution takes precedence over a conflicting indicative TCP', () => {
