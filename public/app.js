@@ -193,7 +193,7 @@ function predictionCells(row, history) {
   if (!predictionsAvailable(row)) return '<td class="num">—</td><td>—</td>';
   const projection = row?.projection;
   const call = projectedParty(row,projection,history);
-  const resultTitle = projection ? `${projection.assumedPair ? 'Assumes the historical TCP pair. ' : ''}${num(projection.tcpCount)} published TCP votes; ${num(projection.fpEstimated)} estimated from first preferences; ${num(projection.remaining)} estimated formal votes left. ${projection.matched} matched booths${projection.matchedTcp ? ' with TCP' : ' with estimated TCP'}.` : '';
+  const resultTitle = projection ? `${projection.assumedPair ? 'Assumes the historical TCP pair. ' : ''}${num(projection.tcpCount)} published TCP votes; ${num(projection.fpEstimated)} estimated from first preferences; ${num(projection.remaining)} estimated formal votes left. ${projection.currentOnly ? `Uses ${num(projection.completedBooths)} completed election-day booths from this election.` : `${projection.matched} matched booths${projection.matchedTcp ? ' with TCP' : ' with estimated TCP'}.`}` : '';
   const projectedName = projection?.leader ? partyName(projection.leader.party) : '';
   const result = projection ? `<td class="num ${projectedName ? tint(projectedName) : ''}"${projectedName ? ` aria-label="${esc(`${projectedName} ${pct(projection.share)}`)}"` : ''} title="${esc(`${projectedName ? `${projectedName} · ` : ''}${resultTitle}`)}">${projectedName ? pct(projection.share) : 'Tied · 50.00%'}</td>` : '<td class="num">—</td>';
   const callTitle = call?.locked ? `Published TCP lead exceeds the enrolment-based maximum of ${num(call.remaining)} votes still outside the TCP count.` : '';
@@ -292,7 +292,7 @@ function districtRaceSummary(row) {
   const swingBaseline = currentSwing === null ? '' : ` title="${esc(`${currentSide.name} · ${matched.matched} matched election-day ${matched.matched === 1 ? 'booth' : 'booths'} vs ${comparisons?.year ?? 2022}`)}"`;
   const matchedDetail = `<dd class="race-matched-swing"${swingBaseline}>Booth-matched swing: ${currentSwing === null ? '—' : `${current.tied ? `${partyShort(currentSide.party)} ` : ''}<span class="${signed(currentSwing)}">${delta(currentSwing)}</span>`}</dd>`;
   const predictedValue = projection?.leader ? pct(projection.share) : projection ? 'Tied · 50.00%' : '—';
-  const projectedSwing = (projection?.baseline === 'final-results-v2' || demo) ? projection?.projectedSwing : null;
+  const projectedSwing = (['final-results-v2','final-results-v3'].includes(projection?.baseline) || demo) ? projection?.projectedSwing : null;
   const projectedDetail = `<dd class="race-projected-swing" title="Forecast final TCP share compared with the previous final district share for the same side">Projected swing: ${projectedSwing === null ? '—' : `<span class="${signed(projectedSwing)}">${delta(projectedSwing)}</span>`}</dd>`;
   const probability = !call?.locked && !row?.elected ? projection?.winProbability : null;
   const chance = probability == null ? '' : `<small class="race-chance">${probability > 0.99 ? '&gt;99%' : `≈${Math.round(100*probability)}%`} modelled win chance${call?.candidate ? '' : ` for ${partyShort(projection.leader.party)}`}</small>`;
@@ -302,7 +302,7 @@ function districtRaceSummary(row) {
     : call?.locked ? `${leadText} At most ${num(call.remaining)} votes are outside the TCP count, based on official enrolment. The lead cannot be overtaken for the published pair if the current tally stands.`
     : projection ? `${leadText}${leadText ? ' ' : ''}The estimate of votes still to report is based on historical turnout.`
     : [leadText, row?.twoStatus === 'withheld' ? 'The VEC is withholding the TCP count.' : row?.twoStatus === 'replaced' ? 'The VEC has replaced TCP with the preference distribution.' : 'A prediction will appear when there is enough comparable count data.'].filter(Boolean).join(' ');
-  const projectionNote = projection ? `<p class="race-swing meta">${num(projection.matched)} matched ${projection.matched === 1 ? 'booth' : 'booths'} with ${projection.matchedTcp ? 'published TCP' : 'estimated TCP'}.${projection.assumedPair ? ' This projection assumes the historical TCP pair.' : ''}</p>` : '';
+  const projectionNote = projection ? `<p class="race-swing meta">${projection.currentOnly ? `Estimate uses ${num(projection.completedBooths)} completed election-day booths from this election. Booths still to report may vote differently.` : `${num(projection.matched)} matched ${projection.matched === 1 ? 'booth' : 'booths'} with ${projection.matchedTcp ? 'published TCP' : 'estimated TCP'}.${projection.assumedPair ? ' This projection assumes the historical TCP pair.' : ''}`}</p>` : '';
   return `<section class="card race-summary" aria-labelledby="race-summary-heading"><h3 id="race-summary-heading">Race summary</h3><dl class="race-metrics">
     ${metric('Current TCP',currentValue,current.leader?.party,current.leader && `${partyName(current.leader.party)} ${currentValue}`,matchedDetail)}
     ${metric('Predicted result',predictedValue,projection?.leader?.party,projection?.leader && `${partyName(projection.leader.party)} ${predictedValue}`,projectedDetail)}

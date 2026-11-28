@@ -83,6 +83,28 @@ test('reconciles pooled TCP against venue-level prepoll and excludes moved booth
   assert.equal(projectDistrict(row,detail,{tcp:history,moved:['Venue 0']}),null);
 });
 
+test('a changed pair can yield Likely from completed current booths without a historical TCP swing', () => {
+  const people = [candidates[0], {name:'D',party:'One Nation'}, candidates[2]];
+  const currentPair = people.slice(0,2);
+  const booths = Array.from({length:5},(_,i) => booth(i,i === 4 ? [40,30,30] : [50,20,30]));
+  const tcp = {status:'ok',pair:currentPair,booths:booths.slice(0,4).map((_,i) => booth(i,[75,25]))};
+  const row = {fp:withVotes(people,[240,110,150]),two:withVotes(currentPair,[300,100]),twoStatus:'reported',enrolled:1200};
+  const detail = {status:'ok',candidates:people,booths,tcp};
+  const baseline = {tcp:{pair,districtTotal:[600,400]},fp:{Labor:400,Liberal:400,Greens:200}};
+  const estimate = projectDistrict(row,detail,baseline);
+  assert.equal(estimate.currentOnly,true);
+  assert.equal(estimate.completedBooths,4);
+  assert.equal(estimate.share,74);
+  assert.equal(estimate.projectedSwing,null);
+  assert.equal(estimate.winProbability,null);
+  assert.equal(projectedParty(row,estimate).label,'Likely');
+  const close = {...row,two:withVotes(currentPair,[224,176])};
+  const closeDetail = {...detail,tcp:{...tcp,booths:tcp.booths.map((_,i) => booth(i,[56,44]))}};
+  assert.equal(projectDistrict(close,closeDetail,baseline).confidence,'Leaning');
+  const one = {...row,two:withVotes(currentPair,[75,25])};
+  assert.equal(projectDistrict(one,{...detail,tcp:{...tcp,booths:tcp.booths.slice(0,1)}},baseline),null);
+});
+
 test('a mathematical TCP lock needs an official upper bound and must rule out a tie', () => {
   const row = {fp:withVotes(candidates,[490,290,120]),two:withVotes(pair,[550,350]),twoStatus:'reported',enrolled:1100};
   assert.equal(tcpLock(row),null); // Remaining 200 could tie the 200-vote lead.

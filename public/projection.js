@@ -99,20 +99,23 @@ export function projectDistrict(row, detail, { tcp:history, final, fp:historical
   if (!row || row.stale || row.elected || ['withheld','replaced'].includes(row.twoStatus) || detail?.status !== 'ok') return null;
   const fp = row.fp.map(c => c.votes);
   const formal = sum(fp);
-  if (!formal || !tally(fp,row.fp.length) || history?.pair?.length !== 2 || !tally(history.districtTotal,2) || !sum(history.districtTotal)) return null;
-  const tcp = detail.tcp?.status === 'ok' ? detail.tcp : null;
+  if (!formal || !tally(fp,row.fp.length)) return null;
+  const tcp = detail.tcp?.status === 'ok' && !detail.tcp.stale ? detail.tcp : null;
   const officialPair = row.two?.length === 2 ? row.two : tcp?.pair;
-  const historicalOrder = !officialPair && aligned(history.pair,row.fp,tcpSide);
+  const historicalOrder = !officialPair && history?.pair?.length === 2 && aligned(history.pair,row.fp,tcpSide);
   const pair = officialPair ?? (historicalOrder && historicalOrder.map(i => row.fp[i]));
   if (pair?.length !== 2) return null;
-  const sides = aligned(pair,row.fp), oldOrder = aligned(pair,history.pair,tcpSide);
+  const sides = aligned(pair,row.fp);
+  const oldOrder = history?.pair?.length === 2 && tally(history.districtTotal,2) && sum(history.districtTotal) && aligned(pair,history.pair,tcpSide);
+  const currentOnly = !oldOrder;
+  if (currentOnly && (!officialPair || !tcp || !historicalFp || !sum(Object.values(historicalFp)))) return null;
   const fpOrder = detail.candidates?.map(c => row.fp.findIndex(f => venueKey(f.name) === venueKey(c.name)));
   const tcpOrder = tcp && aligned(pair,tcp.pair);
-  if (!sides || !oldOrder || fpOrder?.length !== fp.length || fpOrder.includes(-1) || new Set(fpOrder).size !== fp.length || (tcp && !tcpOrder)) return null;
+  if (!sides || fpOrder?.length !== fp.length || fpOrder.includes(-1) || new Set(fpOrder).size !== fp.length || (tcp && !tcpOrder)) return null;
 
   const fpBuckets = buckets(detail,fp.length,row.fp.map((_, i) => fpOrder.indexOf(i)));
   const tcpBuckets = tcp ? buckets(tcp,2,tcpOrder) : new Map();
-  const oldBuckets = buckets(history,2,oldOrder);
+  const oldBuckets = currentOnly ? new Map() : buckets(history,2,oldOrder);
   if (!fpBuckets || !tcpBuckets || !oldBuckets) return null;
   const actual = [...tcpBuckets.values()].reduce((v,b) => add(v,b.votes),[0,0]);
   // The district and centre pages can update at different times. Don't allocate the same votes twice.
@@ -122,19 +125,23 @@ export function projectDistrict(row, detail, { tcp:history, final, fp:historical
   if (unallocatedFp.some(v => v < 0) || sum(actual) > formal) return null;
   if (sum(unallocatedFp)) fpBuckets.set('residual', {kind:'residual',votes:unallocatedFp});
 
-  const oldVotes = oldOrder.map(i => history.districtTotal[i]);
-  const finalOrder = final && aligned(pair,final.pair,tcpSide);
+  const oldVotes = currentOnly ? [] : oldOrder.map(i => history.districtTotal[i]);
+  const finalOrder = !currentOnly && final && aligned(pair,final.pair,tcpSide);
   const finalVotes = finalOrder && finalOrder.map(i => final.districtTotal[i]);
-  const fallbackFlow = priorFlow(historicalFp,finalVotes ?? oldVotes,pair);
+  const fallbackFlow = currentOnly ? null : priorFlow(historicalFp,finalVotes ?? oldVotes,pair);
   const flows = new Map();
   let overallFlow = [0,0];
+  const completed = [];
   for (const [key,b] of fpBuckets) {
     const observed = tcpBuckets.get(key)?.votes;
+    if (currentOnly && b.kind === 'ordinary' && observed && sum(observed) > 0 && sum(observed) === sum(b.votes) &&
+        observed.every((votes,i) => votes >= b.votes[sides[i]])) completed.push(observed);
     const rate = observed && transfer(b.votes,observed,sides);
     if (!rate) continue;
     flows.set(b.kind,add(flows.get(b.kind) ?? [0,0],rate));
     overallFlow = add(overallFlow,rate);
   }
+  if (currentOnly && completed.length < 2) return null;
   const rateFor = kind => {
     const rate = flows.get(kind) ?? overallFlow;
     return rate[1] ? rate[0]/rate[1] : fallbackFlow;
@@ -179,11 +186,17 @@ export function projectDistrict(row, detail, { tcp:history, final, fp:historical
   }
   if (fpEstimated > formal - sum(actual)) return null;
   const matched = swings.length ? swings : indicativeSwings;
-  if (!matched.length) return null;
-  const matchedTotals = matched.reduce(([current, old],m) => [add(current,m.current),add(old,m.old)],[[0,0],[0,0]]);
-  const swing = matchedTotals[0][0]/sum(matchedTotals[0]) - matchedTotals[1][0]/sum(matchedTotals[1]);
-  const oldRemaining = subtract(oldVotes,oldCovered).map(v => Math.max(0,v));
-  const outstandingShare = clamp((sum(oldRemaining) ? oldRemaining[0]/sum(oldRemaining) : oldVotes[0]/sum(oldVotes)) + swing);
+  if (!currentOnly && !matched.length) return null;
+  let swing = null, outstandingShare;
+  if (currentOnly) {
+    const completedVotes = completed.reduce(add,[0,0]);
+    outstandingShare = completedVotes[0]/sum(completedVotes);
+  } else {
+    const matchedTotals = matched.reduce(([current,old],m) => [add(current,m.current),add(old,m.old)],[[0,0],[0,0]]);
+    swing = matchedTotals[0][0]/sum(matchedTotals[0]) - matchedTotals[1][0]/sum(matchedTotals[1]);
+    const oldRemaining = subtract(oldVotes,oldCovered).map(v => Math.max(0,v));
+    outstandingShare = clamp((sum(oldRemaining) ? oldRemaining[0]/sum(oldRemaining) : oldVotes[0]/sum(oldVotes)) + swing);
+  }
   const officialCap = Number.isSafeInteger(row.enrolled) && row.enrolled >= formal ? row.enrolled - formal : Infinity;
   const historicalFormal = historicalFp ? sum(Object.values(historicalFp)) : sum(oldVotes);
   const remaining = Math.min(officialCap,Math.max(0,historicalFormal - formal,emptyBoothVotes));
@@ -201,13 +214,16 @@ export function projectDistrict(row, detail, { tcp:history, final, fp:historical
     return leaderVotes - exposed * shift + extra * clamp(1-adverseShare-shift) > (projectedTotal + extra)/2;
   };
   const tcpCount = sum(actual);
-  const likely = leader && officialPair && swings.length >= 4 && formal/projectedTotal >= 0.35 && tcpCount/projectedTotal >= 0.15 && stress(0.20,extraTurnout);
-  const leaning = leader && matched.length >= 2 && formal/projectedTotal >= 0.10 && stress(0.10,0);
+  const observedBooths = currentOnly ? completed.length : swings.length;
+  const supportingBooths = currentOnly ? completed.length : matched.length;
+  const likely = leader && officialPair && observedBooths >= 4 && formal/projectedTotal >= 0.35 && tcpCount/projectedTotal >= 0.15 && stress(0.20,extraTurnout);
+  const leaning = leader && supportingBooths >= 2 && formal/projectedTotal >= 0.10 && stress(0.075,0);
   const winProbability = estimateWinProbability({swings,first,tcpCount,projectedTotal,remaining,fpEstimated,extraTurnout,officialPair,leader});
   const projectedShare = leader ? 100 * Math.max(first,1-first) : 50;
   const projectedSwing = leader && finalVotes ? projectedShare - 100 * finalVotes[pair.indexOf(leader)]/sum(finalVotes) : null;
   return { leader, share:projectedShare, projectedSwing, remaining, fpEstimated, tcpCount,
-    matched:matched.length, matchedTcp:swings.length, swing:100*swing, swingParty:pair[0].party, assumedPair:!officialPair,
+    matched:matched.length, matchedTcp:swings.length, swing:swing === null ? null : 100*swing, swingParty:pair[0].party, assumedPair:!officialPair,
+    ...(currentOnly ? {currentOnly:true, completedBooths:completed.length} : {}),
     confidence:likely ? 'Likely' : leaning ? 'Leaning' : 'Uncertain', winProbability };
 }
 
