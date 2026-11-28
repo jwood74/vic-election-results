@@ -33,6 +33,18 @@ let sportsbetOdds, historicalResults;
 const views = { search: '', watched: false, sort: 'name', districtUnits: 'share', boothSearch: params.get('q') ?? '', boothSort: params.get('sort') === 'votes' ? 'votes' : 'name', boothUnits: ['votes','swing'].includes(params.get('units')) ? params.get('units') : 'share', districtParty: '', boothParty: params.get('party') ?? '' };
 views.boothFilter = boothFilters.has(params.get('filter')) ? params.get('filter') : 'all';
 views.showAllParties = false;
+const districtViewKey = `vic-votes-2026-${demo ? 'demo-' : ''}district-view`;
+try {
+  const saved = JSON.parse(localStorage.getItem(districtViewKey));
+  views.watched = saved?.watched === true;
+  if (['name','close','votes','updated'].includes(saved?.sort)) views.sort = saved.sort;
+  if (['share','votes','swing'].includes(saved?.districtUnits)) views.districtUnits = saved.districtUnits;
+  if ([...majorParties,'Other'].includes(saved?.districtParty)) views.districtParty = saved.districtParty;
+} catch {}
+function saveDistrictView() {
+  const {watched,sort,districtUnits,districtParty} = views;
+  try { localStorage.setItem(districtViewKey,JSON.stringify({watched,sort,districtUnits,districtParty})); } catch {}
+}
 function boothHref(district, full = expanded, keepParty = true) {
   const query = new URLSearchParams({ district });
   if (demo) query.set('demo','1');
@@ -579,6 +591,7 @@ $('content').addEventListener('click', e => {
     const scroll = button.closest('.matrix-scroll');
     const { scrollLeft, scrollTop } = scroll;
     views[key] = views[key] === value ? '' : value;
+    if (key === 'districtParty') saveDistrictView();
     redraw();
     const attr = data === 'districtParty' ? 'data-district-party' : 'data-booth-party';
     const replacement = document.querySelector(`[${attr}="${CSS.escape(value)}"]`);
@@ -623,9 +636,9 @@ $('content').addEventListener('change', e => {
     render();
   }
   if (e.target.id === 'booth-district' && Object.hasOwn(roster,e.target.value)) location.assign(boothHref(e.target.value,true,false));
-  if (e.target.id === 'watched') { views.watched = e.target.checked; districtList(); }
-  if (e.target.id === 'sort') { views.sort = e.target.value; views.districtParty = ''; districtList(); }
-  if (e.target.id === 'district-units') { views.districtUnits = e.target.value; districtList(); }
+  if (e.target.id === 'watched') { views.watched = e.target.checked; saveDistrictView(); districtList(); }
+  if (e.target.id === 'sort') { views.sort = e.target.value; views.districtParty = ''; saveDistrictView(); districtList(); }
+  if (e.target.id === 'district-units') { views.districtUnits = e.target.value; saveDistrictView(); districtList(); }
   if (e.target.id === 'booth-sort') { views.boothSort = e.target.value; views.boothParty = ''; boothList(); }
   if (e.target.id === 'booth-units') { views.boothUnits = e.target.value; boothList(); }
   if (e.target.id === 'booth-filter') { views.boothFilter = e.target.value; boothList(); }
