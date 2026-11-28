@@ -38,6 +38,21 @@ test('captures the official close-of-roll enrolment and keeps blanks distinct fr
   assert.equal(parseDistrict(enrolled.replace('49,984','—'),bass).enrolled,null);
 });
 
+test('district update time survives refreshes and advances when a tally changes', async () => {
+  const first = '2026-11-28T07:05:00.000Z';
+  const second = '2026-11-28T07:06:00.000Z';
+  let votes = 500;
+  const get = async url => url === EXPECTED ? index : url === bass
+    ? page(resultTable('2CP votes',votes,450)) : url === evelyn
+      ? page('').replace(resultTable('1st pref. votes',900,'1,000'),resultTable('1st pref. votes',0,0)) : null;
+  const initial = await collect(undefined,get,() => first);
+  const refreshed = await collect(initial,get,() => second);
+  assert.deepEqual(refreshed.results.map(r => [r.id,r.updatedAt]),[['bass',first],['evelyn',null]]);
+  votes++;
+  const changed = await collect(refreshed,get,() => second);
+  assert.equal(changed.results.find(r => r.id === 'bass').updatedAt,second);
+});
+
 test('reads mixed-case live links, party-first TCP, and single-row booth headings', () => {
   const source = `${EXPECTED}/results-by-district/Caulfield-District-results`;
   assert.equal(districtLinks(`<main>${link(source)}</main>`,EXPECTED).get('caulfield'),source);

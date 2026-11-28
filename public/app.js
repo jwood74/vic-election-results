@@ -115,7 +115,7 @@ function statewideView(parties) {
     <div class="grid"><div class="card"><h3>First preferences by party</h3>${stats.list.length ? table(['Party','Votes','Share','Swing','Leading','Declared'],stats.list.map(p => `<tr${majorParties.includes(p.label) ? ` class="${tint(p.label)}"` : ''}><th scope="row">${esc(p.label)}</th>${cell(num(p.votes))}${cell(pct(share(p.votes,stats.votes)))}${cell(delta(swings.get(p.label)),signed(swings.get(p.label)))}${cell(p.leading)}${cell(p.declared)}</tr>`).join(''),'Statewide votes by party', 'statewide-party-table') : empty('Party totals will appear when districts report.')}${swings.size ? `<p class="swing-baseline meta">Swing in percentage points vs ${demo ? 'the 2022 demo baseline' : `2022 across ${comparable.length} comparable ${comparable.length === 1 ? 'district' : 'districts'}`}.</p>` : ''}</div>
     ${seats.breakdown}</div></section>
     <section id="districts"><h2 class="section-head">District results</h2>
-    <div class="tools"><input type="search" id="search" placeholder="Search districts" aria-label="Search districts" value="${esc(views.search)}"><label><input type="checkbox" id="watched" ${views.watched ? 'checked' : ''}> Watchlist only</label><select id="sort" aria-label="Sort districts"><option value="name">District A–Z</option><option value="close">Closest TCP</option><option value="votes">Most votes counted</option></select><select id="district-units" aria-label="District result display"><option value="share">Percentage</option><option value="votes">Votes</option><option value="swing">Swings</option></select></div><div class="card" id="district-list"></div>
+    <div class="tools"><input type="search" id="search" placeholder="Search districts" aria-label="Search districts" value="${esc(views.search)}"><label><input type="checkbox" id="watched" ${views.watched ? 'checked' : ''}> Watchlist only</label><select id="sort" aria-label="Sort districts"><option value="name">District A–Z</option><option value="close">Closest TCP</option><option value="votes">Most votes counted</option><option value="updated">Most recently updated</option></select><select id="district-units" aria-label="District result display"><option value="share">Percentage</option><option value="votes">Votes</option><option value="swing">Swings</option></select></div><div class="card" id="district-list"></div>
     ${snapshot?.status === 'archive' ? '' : `<details class="prediction-notes meta"><summary>How to read the predictions</summary><p>Predicted result is the estimated final two-candidate-preferred (TCP) share. It combines published TCP, estimated preference flows for ballots with first preferences only, and historical TCP adjusted by swing at matched booths. Estimated votes left use historical turnout.</p><p>Leaning and Likely mean the projected lead survives increasingly adverse assumptions about remaining votes. Uncertain means the lead is sensitive to those assumptions or there is too little data. Gain or Hold appears only when the lead for the published TCP pair exceeds the maximum possible uncounted votes, using official enrolment. It compares with the historical TCP leader and remains subject to rechecks and the final preference distribution.</p></details>`}</section>`;
 }
 
@@ -218,7 +218,16 @@ function districtList() {
     const votes = data?.votes.get(party) ?? null;
     return counts ? (data?.formal ? votes : null) : share(votes, data?.formal);
   };
-  const score = key => active ? value(key,active) ?? -Infinity : views.sort === 'close' ? -(ranked.get(key)?.tcp.margin ?? Infinity) : views.sort === 'votes' ? ranked.get(key)?.formal ?? 0 : 0;
+  const score = key => {
+    if (active) return value(key,active) ?? -Infinity;
+    if (views.sort === 'close') return -(ranked.get(key)?.tcp.margin ?? Infinity);
+    if (views.sort === 'votes') return ranked.get(key)?.formal ?? 0;
+    if (views.sort === 'updated') {
+      const row = rows.get(key);
+      return row?.stale ? -Infinity : Date.parse(row?.updatedAt) || -Infinity;
+    }
+    return 0;
+  };
   list.sort(([a,an],[b,bn]) => (score(b) - score(a)) || an.localeCompare(bn));
   const format = swings ? delta : counts ? num : pct;
   const band = swings ? `First preference swing vs ${demo ? '2022 demo baseline' : '2022'}` : counts ? 'First preference votes' : 'First preference share';
