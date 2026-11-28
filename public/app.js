@@ -32,6 +32,7 @@ let roster = {}, snapshot, boothData, history, tcpHistory, comparisonHistory, di
 let sportsbetOdds, historicalResults;
 const views = { search: '', watched: false, sort: 'name', districtUnits: 'share', boothSearch: params.get('q') ?? '', boothSort: params.get('sort') === 'votes' ? 'votes' : 'name', boothUnits: ['votes','swing'].includes(params.get('units')) ? params.get('units') : 'share', districtParty: '', boothParty: params.get('party') ?? '' };
 views.boothFilter = boothFilters.has(params.get('filter')) ? params.get('filter') : 'all';
+views.showAllParties = false;
 function boothHref(district, full = expanded, keepParty = true) {
   const query = new URLSearchParams({ district });
   if (demo) query.set('demo','1');
@@ -109,10 +110,12 @@ function statewideView(parties) {
   const comparable = results.filter(canCompare);
   const swings = partySwing(partyVotes(comparable.flatMap(r => r.fp)), partyVotes(comparable.flatMap(r => priorVotes(r.id))));
   const seats = seatOverview(parties);
+  const visibleParties = views.showAllParties ? stats.list : stats.list.slice(0,8);
+  const moreParties = stats.list.length - 8;
   return `<section id="statewide"><h1 class="section-head">Statewide overview</h1>
     <div class="stats">${[['Formal votes reported',stats.reporting ? num(stats.votes) : '—'],['Districts reporting',`${stats.reporting} / 88`],['Seats declared',`${stats.declared} / 88`]].map(([label,value]) => `<div class="stat"><small>${label}</small><strong>${value}</strong></div>`).join('')}</div>
     ${seats.bar}
-    <div class="grid"><div class="card"><h3>First preferences by party</h3>${stats.list.length ? table(['Party','Votes','Share','Swing','Leading','Declared'],stats.list.map(p => `<tr${majorParties.includes(p.label) ? ` class="${tint(p.label)}"` : ''}><th scope="row">${esc(p.label)}</th>${cell(num(p.votes))}${cell(pct(share(p.votes,stats.votes)))}${cell(delta(swings.get(p.label)),signed(swings.get(p.label)))}${cell(p.leading)}${cell(p.declared)}</tr>`).join(''),'Statewide votes by party', 'statewide-party-table') : empty('Party totals will appear when districts report.')}${swings.size ? `<p class="swing-baseline meta">Swing in percentage points vs ${demo ? 'the 2022 demo baseline' : `2022 across ${comparable.length} comparable ${comparable.length === 1 ? 'district' : 'districts'}`}.</p>` : ''}</div>
+    <div class="grid"><div class="card"><h3>First preferences by party</h3><div id="statewide-party-results">${visibleParties.length ? table(['Party','Votes','Share','Swing','Leading','Declared'],visibleParties.map(p => `<tr${majorParties.includes(p.label) ? ` class="${tint(p.label)}"` : ''}><th scope="row">${esc(p.label)}</th>${cell(num(p.votes))}${cell(pct(share(p.votes,stats.votes)))}${cell(delta(swings.get(p.label)),signed(swings.get(p.label)))}${cell(p.leading)}${cell(p.declared)}</tr>`).join(''),'Statewide votes by party', 'statewide-party-table') : empty('Party totals will appear when districts report.')}</div>${moreParties > 0 ? `<div class="swing-baseline meta"><button type="button" class="outline" id="show-more-parties" aria-expanded="${views.showAllParties}" aria-controls="statewide-party-results">${views.showAllParties ? 'Show fewer parties' : `Show ${moreParties} more ${moreParties === 1 ? 'party' : 'parties'}`}</button></div>` : ''}${swings.size ? `<p class="swing-baseline meta">Swing in percentage points vs ${demo ? 'the 2022 demo baseline' : `2022 across ${comparable.length} comparable ${comparable.length === 1 ? 'district' : 'districts'}`}.</p>` : ''}</div>
     ${seats.breakdown}</div></section>
     <section id="districts"><h2 class="section-head">District results</h2>
     <div class="tools"><input type="search" id="search" placeholder="Search districts" aria-label="Search districts" value="${esc(views.search)}"><label><input type="checkbox" id="watched" ${views.watched ? 'checked' : ''}> Watchlist only</label><select id="sort" aria-label="Sort districts"><option value="name">District A–Z</option><option value="close">Closest TCP</option><option value="votes">Most votes counted</option><option value="updated">Most recently updated</option></select><select id="district-units" aria-label="District result display"><option value="share">Percentage</option><option value="votes">Votes</option><option value="swing">Swings</option></select></div><div class="card" id="district-list"></div>
@@ -562,6 +565,7 @@ const siteHeader = $('site-header');
 new ResizeObserver(() => document.documentElement.style.setProperty('--header-height', `${siteHeader.offsetHeight}px`)).observe(siteHeader);
 $('content').addEventListener('click', e => {
   const button = e.target.closest('button');
+  if (button?.id === 'show-more-parties') { views.showAllParties = !views.showAllParties; render(); }
   if (button?.id === 'lock-picks' && !originalsClosed() && Object.keys(picks.original).length) {
     if (window.confirm('Lock your pre-count picks? You can still make separate live picks, but this set can no longer be edited.') && !originalsClosed()) {
       savePicks({ ...picks, lockedAt:Date.now() });
