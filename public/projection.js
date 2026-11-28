@@ -243,17 +243,18 @@ export function projectedParty(row, projection, prior) {
 
 export const seatStages = ['leading', 'leaning', 'likely', 'locked', 'declared'];
 
-export function seatOutlook(rows, { allowProjections = true } = {}) {
+export function seatOutlook(rows, { allowProjections = true, staleSnapshot = false } = {}) {
   const parties = new Map([...majorParties,'Other'].map(party => [party, {party, total:0, ...Object.fromEntries(seatStages.map(stage => [stage,[]]))}]));
   for (const row of rows) {
-    if (!row.elected && (row.stale || !allowProjections)) continue;
-    const call = projectedParty(row,row.projection);
+    if (!row.elected && !allowProjections) continue;
+    // Classify the last successful tally as it stood, and carry its freshness separately.
+    const call = projectedParty(row.stale ? {...row,stale:false} : row,row.projection);
     const candidate = call?.candidate ?? race(row).leader;
     if (!candidate) continue;
     const stage = call?.candidate ? (call.locked ? 'locked' : call.label.toLowerCase()) : 'leading';
     const party = partyName(candidate.party);
     const group = parties.get(party) ?? parties.get('Other');
-    group[stage].push({id:row.id,party});
+    group[stage].push({id:row.id,party,...(row.stale || staleSnapshot ? {stale:true} : {})});
     group.total++;
   }
   return [...parties.values()].filter(group => group.party !== 'Other' || group.total);

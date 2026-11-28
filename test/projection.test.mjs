@@ -122,7 +122,7 @@ test('a mathematical TCP lock needs an official upper bound and must rule out a 
   assert.equal(projectedParty({...locked,elected:row.fp[1]},null,pair[1]).label,'Declared');
 });
 
-test('seat outlook lists fresh TCP leads separately from stronger calls', () => {
+test('seat outlook keeps stale calls and lists TCP leads separately from stronger calls', () => {
   const base = {fp:withVotes(candidates,[490,290,120]),two:withVotes(pair,[550,350]),twoStatus:'reported'};
   const forecast = (id,leader,confidence) => ({...base,id,projection:{leader,confidence}});
   const rows = [forecast('a',pair[0],'Leaning'),forecast('b',pair[1],'Likely'),
@@ -131,11 +131,13 @@ test('seat outlook lists fresh TCP leads separately from stronger calls', () => 
     forecast('e',pair[0],'Uncertain'),{...base,id:'f'},{...forecast('g',pair[0],'Likely'),stale:true},
     {...base,id:'h',two:withVotes(pair,[450,450])},{...base,id:'i',twoStatus:'unavailable'}];
   const groups = seatOutlook(rows);
-  assert.deepEqual(groups.map(p => [p.party,p.total]),[['Labor',4],['Liberal',1],['Nationals',0],['Greens',0],['One Nation',0],['Other',1]]);
+  assert.deepEqual(groups.map(p => [p.party,p.total]),[['Labor',5],['Liberal',1],['Nationals',0],['Greens',0],['One Nation',0],['Other',1]]);
   assert.deepEqual(groups[0].leaning.map(seat => seat.id),['a']);
   assert.deepEqual(groups[0].locked.map(seat => seat.id),['c']);
   assert.deepEqual(groups[1].likely.map(seat => seat.id),['b']);
   assert.deepEqual(groups[0].leading.map(seat => seat.id),['e','f']);
+  assert.deepEqual(groups[0].likely,[{id:'g',party:'Labor',stale:true}]);
+  assert.ok(seatOutlook(rows,{staleSnapshot:true})[0].leading.every(seat => seat.stale));
   assert.equal(groups[1].leading.length,0);
   assert.deepEqual(groups.at(-1).declared,[{id:'d',party:'Independent'}]);
   assert.deepEqual(seatOutlook(rows,{allowProjections:false}).filter(p => p.total).map(p => p.party),['Other']);

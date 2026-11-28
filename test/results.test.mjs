@@ -5,6 +5,7 @@ import { boothComparisons, boothMatchedTcpSwing, districtTcpSwing, electorateSwi
 import historical from '../public/data/historical-results.json' with { type:'json' };
 import archiveTcp from '../public/data/tcp-2022.json' with { type:'json' };
 import { api } from '../lib/api.mjs';
+import { seatOutlook } from '../public/projection.js';
 
 const bass = `${EXPECTED}/results-by-district/bass-district-results`;
 const evelyn = `${EXPECTED}/results-by-district/evelyn-district-results`;
@@ -164,11 +165,16 @@ test('district TCP swing follows the current leader across a reversal in the his
 test('uses only linked known districts and keeps a marked stale previous row after a failed read', async () => {
   assert.equal(Object.keys(districts).length, 88);
   assert.deepEqual([...districtLinks(index, EXPECTED)], [['bass',bass],['evelyn',evelyn]]);
-  const previous = { results: [{ id:'evelyn', ...parseDistrict(page(''), evelyn) }] };
+  const previous = { results: [{ id:'evelyn', ...parseDistrict(page(resultTable('2CP votes',550,450)), evelyn) }] };
   const got = await collect(previous, async url => url === EXPECTED ? index : url === bass ? page('') : null);
   assert.equal(got.status, 'partial');
   assert.equal(got.loaded, 1);
   assert.equal(got.results.find(r => r.id === 'evelyn').stale, true);
+  assert.deepEqual(got.districtErrors,{evelyn:404});
+  assert.deepEqual(seatOutlook(got.results)[0].leading,[{id:'evelyn',party:'Labor',stale:true}]);
+  const recovered = await collect(got, async url => url === EXPECTED ? index : url === evelyn ? page(resultTable('2CP votes',500,600)) : url === bass ? page('') : null);
+  assert.deepEqual(recovered.districtErrors,{});
+  assert.deepEqual(seatOutlook(recovered.results)[1].leading,[{id:'evelyn',party:'Liberal'}]);
 });
 
 test('collector publishes a compact projection alongside district totals', async () => {

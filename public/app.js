@@ -97,14 +97,17 @@ const stageLabel = stage => stage[0].toUpperCase() + stage.slice(1);
 function seatOverview(parties) {
   const total = sum(parties.map(p => p.total));
   const byStage = [...seatStages].reverse();
+  const staleSeats = p => sum(seatStages.map(stage => p[stage].filter(seat => seat.stale).length));
+  const staleCount = sum(parties.map(staleSeats));
+  const staleLabel = staleCount ? ` · ${staleCount} stale` : '';
   const seats = [...parties].filter(p => p.total).sort((a,b) => b.total-a.total).flatMap(p =>
-    byStage.flatMap(stage => p[stage].map(seat => `<span class="${tint(p.party)}" data-stage="${stage}" title="${esc(`${roster[seat.id] ?? seat.id} · ${partyAbbreviation(seat.party)} ${stageLabel(stage)}`)}"></span>`)));
+    byStage.flatMap(stage => p[stage].map(seat => `<span class="${tint(p.party)}" data-stage="${stage}" title="${esc(`${roster[seat.id] ?? seat.id} · ${partyAbbreviation(seat.party)} ${stageLabel(stage)}${seat.stale ? ' · Stale' : ''}`)}"></span>`)));
   const unallocated = Math.max(0,88-total);
-  const description = [...parties.filter(p => p.total).map(p => `${partyAbbreviation(p.party)} ${p.total}`),`${unallocated} unallocated`,'45 seats for a majority'].join(', ');
+  const description = [...parties.filter(p => p.total).map(p => `${partyAbbreviation(p.party)} ${p.total}`),...(staleCount ? [`${staleCount} stale`] : []),`${unallocated} unallocated`,'45 seats for a majority'].join(', ');
   const bar = `<div class="seatline" role="img" aria-label="${esc(`Seat outlook: ${description}`)}">${seats.join('')}${'<span></span>'.repeat(unallocated)}</div>
-    <div class="seatnote meta"><span>${total} of 88 seats in the outlook</span><strong>45 seats for a majority</strong></div>
+    <div class="seatnote meta"><span>${total} of 88 seats in the outlook${staleLabel}</span><strong>45 seats for a majority</strong></div>
     <ul class="seat-legend meta" aria-label="Seat confidence legend">${[...seatStages,'unallocated'].map(stage => `<li><span data-stage="${stage}" aria-hidden="true"></span>${stageLabel(stage)}</li>`).join('')}</ul>`;
-  const breakdown = `<div class="card"><h3>Seats by Party</h3>${table(['Party',...seatStages.map(stageLabel),'Total'],parties.map(p => `<tr class="${tint(p.party)}"><th scope="row">${p.party === 'Other' ? 'Other' : partyShort(p.party)}</th>${seatStages.map(stage => cell(num(p[stage].length))).join('')}${cell(`<strong>${num(p.total)}</strong>`)}</tr>`).join(''),'Seats by Party','statewide-party-table seat-breakdown')}<p class="swing-baseline meta">Leading shows the published TCP leader when there is no stronger call. The total and seat bar include all five stages.</p></div>`;
+  const breakdown = `<div class="card"><h3>Seats by Party</h3>${table(['Party',...seatStages.map(stageLabel),'Total'],parties.map(p => `<tr class="${tint(p.party)}"><th scope="row">${p.party === 'Other' ? 'Other' : partyShort(p.party)}</th>${seatStages.map(stage => cell(num(p[stage].length))).join('')}${cell(`<strong>${num(p.total)}</strong>${staleSeats(p) ? ` <small class="stale">(${staleSeats(p)} stale)</small>` : ''}`)}</tr>`).join(''),'Seats by Party','statewide-party-table seat-breakdown')}<p class="swing-baseline meta">Leading shows the published TCP leader when there is no stronger call. Stale seats use the last successful district count.</p></div>`;
   return {bar,breakdown};
 }
 
@@ -127,7 +130,7 @@ function statewideView(parties) {
   return `<section id="statewide"><h1 class="section-head">Statewide overview</h1>
     <div class="stats">${[['Formal votes reported',stats.reporting ? num(stats.votes) : '—'],['Districts reporting',`${stats.reporting} / 88`],['Seats declared',`${stats.declared} / 88`]].map(([label,value]) => `<div class="stat"><small>${label}</small><strong>${value}</strong></div>`).join('')}</div>
     ${seats.bar}
-    <div class="grid"><div class="card"><h3>First preferences by party</h3><div id="statewide-party-results">${visibleParties.length ? table(['Party','Votes','Share','Swing','Leading','Declared'],visibleParties.map(p => `<tr${majorParties.includes(p.label) ? ` class="${tint(p.label)}"` : ''}><th scope="row">${esc(p.label)}</th>${cell(num(p.votes))}${cell(pct(share(p.votes,stats.votes)))}${cell(delta(swings.get(p.label)),signed(swings.get(p.label)))}${cell(p.leading)}${cell(p.declared)}</tr>`).join(''),'Statewide votes by party', 'statewide-party-table') : empty('Party totals will appear when districts report.')}</div>${moreParties > 0 ? `<div class="swing-baseline meta"><button type="button" class="outline" id="show-more-parties" aria-expanded="${views.showAllParties}" aria-controls="statewide-party-results">${views.showAllParties ? 'Show fewer parties' : `Show ${moreParties} more ${moreParties === 1 ? 'party' : 'parties'}`}</button></div>` : ''}${swings.size ? `<p class="swing-baseline meta">Swing in percentage points vs ${demo ? 'the 2022 demo baseline' : `2022 across ${comparable.length} comparable ${comparable.length === 1 ? 'district' : 'districts'}`}.</p>` : ''}</div>
+    <div class="grid"><div class="card"><h3>First preferences by party</h3><div id="statewide-party-results">${visibleParties.length ? table(['Party','Votes','Share','Swing'],visibleParties.map(p => `<tr${majorParties.includes(p.label) ? ` class="${tint(p.label)}"` : ''}><th scope="row">${esc(p.label)}</th>${cell(num(p.votes))}${cell(pct(share(p.votes,stats.votes)))}${cell(delta(swings.get(p.label)),signed(swings.get(p.label)))}</tr>`).join(''),'Statewide votes by party', 'statewide-party-table') : empty('Party totals will appear when districts report.')}</div>${moreParties > 0 ? `<div class="swing-baseline meta"><button type="button" class="outline" id="show-more-parties" aria-expanded="${views.showAllParties}" aria-controls="statewide-party-results">${views.showAllParties ? 'Show fewer parties' : `Show ${moreParties} more ${moreParties === 1 ? 'party' : 'parties'}`}</button></div>` : ''}${swings.size ? `<p class="swing-baseline meta">Swing in percentage points vs ${demo ? 'the 2022 demo baseline' : `2022 across ${comparable.length} comparable ${comparable.length === 1 ? 'district' : 'districts'}`}.</p>` : ''}</div>
     ${seats.breakdown}</div></section>
     <section id="districts"><h2 class="section-head">District results</h2>
     <div class="tools"><input type="search" id="search" placeholder="Search districts" aria-label="Search districts" value="${esc(views.search)}"><label><input type="checkbox" id="watched" ${views.watched ? 'checked' : ''}> Watchlist only</label><select id="sort" aria-label="Sort districts"><option value="name">District A–Z</option><option value="close">Closest TCP</option><option value="votes">Most votes counted</option><option value="updated">Most recently updated</option></select><select id="district-units" aria-label="District result display"><option value="share">Percentage</option><option value="votes">Votes</option><option value="swing">Swings</option></select></div><div class="card" id="district-list"></div>
@@ -221,10 +224,12 @@ function freshnessView() {
   const body = Object.entries(roster).sort(([,a],[,b]) => a.localeCompare(b)).map(([key,name]) => {
     const row = rows.get(key);
     const state = !row ? 'Unavailable' : row.stale || snapshot.status === 'stale' ? 'Stale' : 'Fresh';
+    const error = snapshot?.districtErrors?.[key];
+    const issue = error === 404 ? 'District page: 404 Not Found' : Number.isInteger(error) ? `District page: HTTP ${error}` : error === 'not-attempted' ? 'Not checked this run' : error ? 'District read failed' : row?.boothReadIssue ?? '—';
     counts[state]++;
-    return `<tr><th scope="row"><a href="${districtHref(key)}">${esc(name)}</a></th><td${state === 'Stale' ? ' class="stale"' : ''}>${state}</td><td>${esc(time(row?.at) ?? '—')}</td><td>${esc(time(row?.updatedAt) ?? '—')}</td></tr>`;
+    return `<tr><th scope="row"><a href="${districtHref(key)}">${esc(name)}</a></th><td${state === 'Stale' ? ' class="stale"' : ''}>${state}</td><td>${esc(issue)}</td><td>${esc(time(row?.at) ?? '—')}</td><td>${esc(time(row?.updatedAt) ?? '—')}</td></tr>`;
   });
-  return `<section aria-label="District data freshness"><p>Fresh means the district page was read in the latest snapshot, even if no votes have been reported. Stale means its last successful result is still displayed. Times are Melbourne time.</p><div class="stats">${Object.entries(counts).map(([label,total]) => `<div class="stat"><small>${label}</small><strong>${total}</strong></div>`).join('')}</div><div class="card">${table(['District','Data status','Last successful read','Last result change'],body.join(''),'District data freshness','',4)}</div></section>`;
+  return `<section aria-label="District data freshness"><p>Fresh means the district page was read in the latest snapshot, even if no votes have been reported. Stale means its last successful result is still displayed. Read issues are from the last district collection. Times are Melbourne time.</p><div class="stats">${Object.entries(counts).map(([label,total]) => `<div class="stat"><small>${label}</small><strong>${total}</strong></div>`).join('')}</div><div class="card">${table(['District','Data status','Read issue','Last successful read','Last result change'],body.join(''),'District data freshness','',5)}</div></section>`;
 }
 
 function districtList() {
@@ -510,7 +515,7 @@ function boothList() {
 
 function render() {
   if (invalid) return;
-  const parties = seatOutlook(snapshot?.results ?? [],{allowProjections:!['archive','stale'].includes(snapshot?.status)});
+  const parties = seatOutlook(snapshot?.results ?? [],{allowProjections:snapshot?.status !== 'archive',staleSnapshot:snapshot?.status === 'stale'});
   renderHeaderOutlook(parties);
   const active = document.activeElement;
   const focusId = active?.id;
@@ -553,7 +558,7 @@ async function refresh() {
       case 'archive': message = '2022 archive preview · six districts · not 2026 results.'; break;
       case 'waiting': message = 'Waiting for the VEC to publish 2026 results.' + stamp; break;
       case 'unverified': message = 'The VEC results page could not be verified yet.' + stamp; warning = true; break;
-      case 'partial': message = `Partial snapshot · ${snapshot.loaded} of 88 district pages read. Statewide totals include any last-known results carried forward from earlier reads.` + stamp; warning = true; break;
+      case 'partial': message = `Partial snapshot · ${snapshot.loaded} of 88 district pages read. Vote and seat totals include last-known results where available.` + stamp; warning = true; break;
       case 'stale': message = 'Showing the last available VEC snapshot. The count may have moved on.' + stamp; warning = true; break;
       default: message = 'VEC public results · automatically checks for updates.' + stamp;
     }
@@ -687,7 +692,7 @@ try {
     }
     if (statusPage) {
       $('back').hidden = false; $('title').hidden = false; $('title').textContent = 'Data status';
-      $('status-link').hidden = true;
+      $('status-link').setAttribute('aria-current','page');
       document.title = 'Data status · Victoria Votes 2026';
     }
     if (!myPredictions && !statusPage) json('data/historical-results.json')
