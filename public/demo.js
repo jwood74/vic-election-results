@@ -1,9 +1,10 @@
-import { boothKey, partyName } from './model.js';
+import { boothKey, partyName, sum } from './model.js';
+import { projectDistrict } from './projection.js';
 
 const ids = ['bass', 'gippsland-east', 'hawthorn', 'melbourne', 'northcote', 'richmond'];
 export const demoIndex = 'https://www.vec.vic.gov.au/results/state-election-results/2022-state-election-results';
 
-export function buildDemo(fpHistory, tcpHistory, pooledHistory = {}) {
+export function buildDemo(fpHistory, tcpHistory, pooledHistory = {}, formalHistory = {}) {
   const results = [];
   const details = new Map();
   const districtBaseline = {};
@@ -34,17 +35,31 @@ export function buildDemo(fpHistory, tcpHistory, pooledHistory = {}) {
     const pooled = pools.map(([kind,votes],j) => simulate(kind,poolNames[kind],votes,j + booths.length));
     districtBaseline[id] = Object.fromEntries(historical);
     // Keep the archived TCP sides so that the demo illustrates a valid historical comparison.
-    const pair = priorTcp.pair;
+    const pair = priorTcp.pair.map(c => candidates.find(p => p.party === partyName(c.party)));
+    const indices = pair.map(c => candidates.indexOf(c));
+    const simulateTcp = (b,prior) => {
+      const total = sum(b.votes);
+      const [a,z] = indices.map(k => b.votes[k]);
+      const first = Math.max(a,Math.min(total-z,Math.round(total * (prior.votes[0]/sum(prior.votes) + (i % 3 - 1)*0.035))));
+      return {kind:b.kind,name:b.name,votes:[first,total-first]};
+    };
     const tcpBooths = booths.flatMap((b,j) => {
       const prior = priorTcpRows.get(boothKey(b));
-      return prior && j % 5 !== 0 ? [{kind:b.kind,name:b.name,votes:prior.votes.map((n,k) => shift(n,j,k + 1,i))}] : [];
+      return prior && sum(prior.votes) && j % 5 !== 0 ? [simulateTcp(b,prior)] : [];
     });
-    const tcpPooled = (priorTcp.pooled ?? []).map((b,j) => ({...b,votes:b.votes.map((n,k) => shift(n,j + booths.length,k + 1,i))}));
+    const tcpPooled = pooled.flatMap(b => {
+      const prior = priorTcp.pooled?.find(p => p.kind === b.kind && sum(p.votes));
+      return prior ? [simulateTcp(b,prior)] : [];
+    });
     const totals = (people,rows) => people.map((person,j) => ({ ...person, votes:rows.reduce((n,b) => n + b.votes[j],0) }));
-    districtTcpBaseline[id] = {pair,districtTotal:totals(pair,[...tcpBooths.map(b => priorTcpRows.get(boothKey(b))), ...(priorTcp.pooled ?? [])]).map(c => c.votes)};
+    districtTcpBaseline[id] = {pair,districtTotal:totals(pair,[...tcpBooths.map(b => priorTcpRows.get(boothKey(b))), ...priorTcp.pooled.filter(b => tcpPooled.some(p => p.kind === b.kind))]).map(c => c.votes)};
     const two = totals(pair,[...tcpBooths,...tcpPooled]);
-    results.push({id,fp:totals(candidates,[...booths,...pooled]),two,twoStatus:two.some(c => c.votes > 0) ? 'reported' : 'unavailable',elected:null});
-    details.set(id,{status:'ok',candidates,booths,pooled,tcp:{status:'ok',pair,booths:tcpBooths,pooled:tcpPooled}});
+    const row = {id,fp:totals(candidates,[...booths,...pooled]),two,twoStatus:two.some(c => c.votes > 0) ? 'reported' : 'unavailable',elected:null};
+    const detail = {status:'ok',candidates,booths,pooled,tcp:{status:'ok',pair,booths:tcpBooths,pooled:tcpPooled}};
+    const missing = fp.filter(([kind],j) => kind === 'ordinary' && j % 4 === 0).map(([kind,name]) => ({kind,name,votes:candidates.map(() => null)}));
+    row.projection = projectDistrict(row,{...detail,booths:[...booths,...missing]}, {tcp:{...priorTcp,pair},fp:formalHistory[id]});
+    results.push(row);
+    details.set(id,detail);
   }
   return {snapshot:{status:'demo',loaded:results.length,results},details,districtBaseline,districtTcpBaseline};
 }

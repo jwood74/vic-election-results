@@ -10,15 +10,22 @@
   <script src="app.js" type="module"></script>
 </head>
 <body>
-  <header class="mast wrap"><a class="brand" href="./"><span class="mark" aria-hidden="true">V</span> VICTORIA VOTES</a><span class="edition">STATE ELECTION <b>2026</b></span></header>
-  <main class="wrap" id="main">
-    <noscript>This dashboard needs JavaScript. <a href="https://www.vec.vic.gov.au/results/state-election-results">Visit the official VEC results.</a></noscript>
-    <div class="page-bar">
+  <header id="site-header" class="site-header">
+    <div class="mast wrap">
+      <a class="brand" href="./"><span class="mark" aria-hidden="true">V</span> VICTORIA VOTES</a>
+      <div id="header-outlook" class="header-outlook" role="group" aria-label="Statewide seat outlook" hidden></div>
+      <span class="edition">STATE ELECTION <b>2026</b></span>
+    </div>
+    <div class="page-bar wrap">
       <a id="back" href="./" hidden>← All districts</a>
       <h1 id="title" hidden></h1>
       <nav id="navigation" aria-label="On this page" hidden><a href="#district-count">District count</a><a href="#booths">Voting centres</a></nav>
+      <a id="predictions-link" class="outline" href="?view=predictions">My Predictions</a>
       <button class="outline" id="refresh" type="button">↻ Refresh results</button>
     </div>
+  </header>
+  <main class="wrap" id="main">
+    <noscript>This dashboard needs JavaScript. <a href="https://www.vec.vic.gov.au/results/state-election-results">Visit the official VEC results.</a></noscript>
     <div id="status" class="notice" role="status"><span id="status-message">Checking for published VEC results…</span> <a id="demo-link" href="?demo=1" hidden>Try the demo</a></div>
     <div id="demo-banner" class="notice warn" hidden><strong>Demo · simulated counts</strong> — Sample data for six districts based on the 2022 archive. These are not 2026 results. <a href="./">Exit demo</a></div>
     <div id="content"></div>

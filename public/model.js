@@ -6,7 +6,7 @@ const aliases = new Map([
   ['australian greens', 'Greens'], ['the greens', 'Greens'], ['greens', 'Greens'],
   ['liberal', 'Liberal'], ['liberal party', 'Liberal'], ['liberal party of australia', 'Liberal'],
   ['the nationals', 'Nationals'], ['nationals', 'Nationals'], ['national party of australia – victoria', 'Nationals'],
-  ["pauline hanson's one nation", 'One Nation'], ['one nation', 'One Nation'],
+  ["pauline hanson's one nation", 'One Nation'], ['one nation', 'One Nation'], ['one nation victoria', 'One Nation'],
 ]);
 export const partyName = name => aliases.get(norm(name)) ?? name.trim();
 const abbreviations = new Map(Object.entries({ Labor:'ALP', Liberal:'LIB', Nationals:'NAT', Greens:'GRN', 'One Nation':'ONP', Independent:'IND', Other:'OTH', 'Animal Justice Party':'AJP', 'Family First Victoria':'FFP', 'Family First':'FFP', 'Legalise Cannabis Victoria':'LCV', 'Victorian Socialists':'VS', Libertarian:'LDP', 'Freedom Party':'FPV', 'Freedom Party of Victoria':'FPV', 'Labour DLP':'DLP', 'Shooters, Fishers & Farmers Vic':'SFF', 'Shooters, Fishers and Farmers Party Victoria':'SFF', 'Transport Matters':'TMP', 'Angry Victorians Party':'AVP', 'Health Australia Party':'HAP', 'Companions and Pets Party':'CPP', "Fiona Patten's Reason Party":'REASON', "Derryn Hinch's Justice Party":'DHJP' }).map(([label, code]) => [norm(label),code]));
@@ -15,7 +15,7 @@ export const partyAbbreviation = label => {
   return abbreviations.get(norm(name)) ?? (name.match(/[\p{L}\p{N}]+/gu)?.map(word => word.length ? [...word][0] : '').join('').toUpperCase() || 'OTH');
 };
 const partyKey = name => norm(partyName(name));
-const tcpSide = candidate => partyKey(candidate.party) === 'independent' ? `ind:${norm(candidate.name)}` : `party:${partyKey(candidate.party)}`;
+export const tcpSide = candidate => partyKey(candidate.party) === 'independent' ? `ind:${norm(candidate.name)}` : `party:${partyKey(candidate.party)}`;
 export const sum = values => values.reduce((a, b) => a + (b ?? 0), 0);
 export const share = (n, d) => n !== null && d > 0 ? 100 * n / d : null;
 export const majorParties = ['Labor', 'Liberal', 'Nationals', 'Greens', 'One Nation'];
@@ -108,6 +108,35 @@ export function districtTcpSwing(row, historical, leader) {
     {pair:historical.pair,booths:[total(historical.districtTotal)]}).get('district:total')?.swing[index] ?? null;
 }
 
+// Compare the two years' summed TCP tallies across the same reporting booths.
+export function boothMatchedTcpSwing(row, current, historical, moved = []) {
+  if (row?.twoStatus !== 'reported' || row.two?.length !== 2 || current?.status !== 'ok') return null;
+  const sides = row.two.map(tcpSide);
+  const order = data => {
+    const keys = data?.pair?.map(tcpSide) ?? [];
+    return keys.length === 2 ? sides.map(side => keys.indexOf(side)) : [];
+  };
+  const nowOrder = order(current), oldOrder = order(historical);
+  if (new Set(sides).size !== 2 || [nowOrder,oldOrder].some(indices => indices.length !== 2 || indices.includes(-1))) return null;
+
+  const movedKeys = new Set(moved.map(venueKey));
+  const ordinary = data => unique((data.booths ?? []).filter(b => b.kind === 'ordinary' && !movedKeys.has(venueKey(b.name))), boothKey);
+  const prior = ordinary(historical);
+  const valid = b => b?.votes?.length === 2 && b.votes.every(n => Number.isSafeInteger(n) && n >= 0) && sum(b.votes) > 0;
+  const now = [0,0], old = [0,0];
+  let matched = 0;
+  for (const [key, booth] of ordinary(current)) {
+    const previous = prior.get(key);
+    if (!valid(booth) || !valid(previous)) continue;
+    for (let i = 0; i < 2; i++) {
+      now[i] += booth.votes[nowOrder[i]];
+      old[i] += previous.votes[oldOrder[i]];
+    }
+    matched++;
+  }
+  return matched ? { matched, swing:now.map((votes,i) => share(votes,sum(now)) - share(old[i],sum(old))) } : null;
+}
+
 export function boothComparisons(booths, fp = [], tcp, extras = {}, currentTcp) {
   fp = extras.fp ?? fp;
   tcp = extras.tcp ?? tcp;
@@ -193,7 +222,7 @@ export function matchedSwing(candidates, booths, history = []) {
   const parties = [...now.keys()].filter(key => key !== 'independent' && then.has(key)).map(key => {
     const before = share(then.get(key), previousTotal);
     const after = share(now.get(key), currentTotal);
-    return { label: partyName(candidates.find(c => partyKey(c.party) === key).party), before, after, pp: after - before };
+    return { label: partyName(candidates.find(c => partyKey(c.party) === key).party), before, after, swing: after - before };
   }).sort((a, b) => b.after - a.after);
   return { parties, matches, reported, coverage: share(currentTotal, reportedTotal) };
 }

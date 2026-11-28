@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { districts, districtLinks, EXPECTED, collect, parseBooths, parseDistrict, parseTcpBooths } from '../lib/vec.mjs';
-import { boothComparisons, districtTcpSwing, electorateSwing, matchedSwing, matchedTcp, partyAbbreviation, partySwing, partyVotes, race, statewide } from '../public/model.js';
+import { boothComparisons, boothMatchedTcpSwing, districtTcpSwing, electorateSwing, matchedSwing, matchedTcp, partyAbbreviation, partySwing, partyVotes, race, statewide } from '../public/model.js';
 
 const bass = `${EXPECTED}/results-by-district/bass-district-results`;
 const evelyn = `${EXPECTED}/results-by-district/evelyn-district-results`;
@@ -30,11 +30,31 @@ test('2CP leads, withheld data, zero counts and declarations stay distinct', () 
   assert.equal(statewide([declared]).leading, 0);
 });
 
+test('captures the official close-of-roll enrolment and keeps blanks distinct from zero', () => {
+  const enrolled = page('').replace('</main>', '<p class="list-item-title">Total enrolment as at close of rolls:</p><p class="list-item-body">49,984</p></main>');
+  assert.equal(parseDistrict(enrolled,bass).enrolled,49984);
+  assert.equal(parseDistrict(enrolled.replace('49,984','—'),bass).enrolled,null);
+});
+
 test('party swing uses share of formal votes and compares parties entering or leaving the race', () => {
   const previous = partyVotes([{party:'Australian Labor Party',votes:40},{party:'Liberal',votes:60}]);
   const current = partyVotes([{party:'Labor',votes:100},{party:'Greens',votes:100}]);
   assert.deepEqual([...partySwing(current,previous)], [['Labor',10],['Greens',50],['Liberal',-60]]);
   assert.equal(partySwing(current,new Map()).size, 0);
+});
+
+test('booth-matched TCP swing uses comparable published booth totals in district pair order', () => {
+  const labor = {name:'Current Labor',party:'Labor'}, liberal = {name:'Current Liberal',party:'Liberal'};
+  const row = {twoStatus:'reported',two:[labor,liberal]};
+  const booth = (name, votes, kind = 'ordinary') => ({name,votes,kind});
+  const current = {status:'ok',pair:[liberal,labor],booths:[booth('Small',[20,80]),booth('Large',[550,350]),
+    booth('Moved',[1,999]),booth('Unmatched',[999,1]),booth('Duplicate',[1,999]),booth('Duplicate',[1,999]),
+    booth('Incomplete',[null,999]),booth('Postal',[1,999],'postal')]};
+  const historical = {pair:[{name:'Prior Labor',party:'Labor'},liberal],booths:[booth('Small',[60,40]),booth('Large',[340,560]),
+    booth('Moved',[999,1]),booth('Duplicate',[999,1]),booth('Incomplete',[999,1]),booth('Postal',[999,1],'postal')]};
+  assert.deepEqual(boothMatchedTcpSwing(row,current,historical,['moved']),{matched:2,swing:[3,-3]});
+  assert.equal(boothMatchedTcpSwing(row,current,{...historical,pair:[labor,{name:'Prior Green',party:'Greens'}]}),null);
+  assert.equal(boothMatchedTcpSwing({...row,twoStatus:'withheld'},current,historical),null);
 });
 
 test('district TCP swing follows the current leader across a reversal in the historical pair', () => {
@@ -56,6 +76,18 @@ test('uses only linked known districts and keeps a marked stale previous row aft
   assert.equal(got.results.find(r => r.id === 'evelyn').stale, true);
 });
 
+test('collector publishes a compact projection alongside district totals', async () => {
+  const district = page(resultTable('2CP votes',900,1000)).replace('</main>', `<a id="TwoCPLink" href="${bass}/tcp">TCP</a></main>`);
+  const cells = (name,values) => `<tr><td>${name}</td>${values.map(v => `<td>${v}</td>`).join('')}</tr>`;
+  const table = (labels,values) => `<main><table><thead><tr><th></th><th>ONE, A</th><th>TWO, B</th><th></th><th></th></tr><tr><th>Ordinary votes</th><th></th><th></th><th>${labels}</th><th>Total votes polled</th></tr></thead><tbody>${cells('Ordinary votes',[])}${cells('Bass',values)}</tbody></table></main>`;
+  const pages = new Map([[EXPECTED,`<main>${link(bass)}</main>`],[bass,district],
+    [`${bass}/by-voting-centre`,table('Informal votes',[900,1000,0,1900])],[`${bass}/tcp`,table('Mis-sorts',[900,1000,0,1900])]]);
+  const snapshot = await collect(null,async url => pages.get(url) ?? null);
+  assert.equal(snapshot.results[0].projection.tcpCount,1900);
+  assert.equal(snapshot.results[0].projection.matchedTcp,1);
+  assert.equal(snapshot.results[0].projection.confidence,'Uncertain');
+});
+
 test('booth parser joins by candidate name and separates early and ordinary venues', () => {
   const { fp } = parseDistrict(page(''), bass);
   const line = (n, values) => `<tr><td>${n}</td>${values.map(v=>`<td>${v}</td>`).join('')}</tr>`;
@@ -68,6 +100,8 @@ test('booth parser joins by candidate name and separates early and ordinary venu
   const pooledOnly = html.replace(line('Bass',[30,25,2,57]), '').replace(line('Declaration votes',[]), line('Early votes total',[77,11,2,90]) + line('Declaration votes',[])).replace('</tbody>',line('Declaration votes total',[33,33,2,68]) + '</tbody>');
   assert.deepEqual(parseBooths(pooledOnly,fp).pooled.map(b => b.kind), ['early-total','postal']);
   assert.throws(() => parseBooths(html.replace('119','120'), fp), /Invalid booth totals/);
+  const pending = html.replace(line('Bass',[12,105,2,119]),line('Bass',['—','','','']));
+  assert.deepEqual(parseBooths(pending,fp).booths[0].votes,[null,null]);
 });
 
 test('matched swing uses vote-weighted shares and excludes unmatched and ambiguous venues', () => {
@@ -81,7 +115,7 @@ test('matched swing uses vote-weighted shares and excludes unmatched and ambiguo
   const result = matchedSwing(candidates, booths, baseline);
   assert.equal(result.matches.size, 2);
   assert.equal(result.reported, 5);
-  assert.equal(result.parties.find(p=>p.label==='Labor').pp, 20);
+  assert.equal(result.parties.find(p=>p.label==='Labor').swing, 20);
   assert.equal(result.parties.some(p=>p.label==='Independent'), false);
   assert.ok(Math.abs(result.coverage - 100 * 300 / 1345) < 1e-9);
 });
@@ -149,5 +183,5 @@ test('electorate swing compares the same five reporting booths using vote-weight
   const labor = result.parties.find(p => p.label === 'Labor');
   assert.equal(labor.before,100*70/150);
   assert.equal(labor.after,47.5);
-  assert.equal(labor.pp,47.5-100*70/150);
+  assert.equal(labor.swing,47.5-100*70/150);
 });
