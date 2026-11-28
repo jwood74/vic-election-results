@@ -94,18 +94,28 @@ function matrix(name, fixed, group, columns, rows, sortKey, active, summary = ''
 
 const stageLabel = stage => stage[0].toUpperCase() + stage.slice(1);
 
+function seatBlocs(parties) {
+  const coalition = ['Liberal','Nationals'].map(party => parties.find(p => p.party === party)).filter(p => p?.total);
+  const blocs = parties.filter(p => p.total && !coalition.includes(p)).map(p => ({label:p.party,total:p.total,parties:[p]}));
+  if (coalition.length) blocs.push({label:'Coalition',total:sum(coalition.map(p => p.total)),parties:coalition});
+  return blocs.sort((a,b) => b.total-a.total);
+}
+
 function seatOverview(parties) {
   const total = sum(parties.map(p => p.total));
   const byStage = [...seatStages].reverse();
   const staleSeats = p => sum(seatStages.map(stage => p[stage].filter(seat => seat.stale).length));
   const staleCount = sum(parties.map(staleSeats));
   const staleLabel = staleCount ? ` · ${staleCount} stale` : '';
-  const seats = [...parties].filter(p => p.total).sort((a,b) => b.total-a.total).flatMap(p =>
+  const blocs = seatBlocs(parties);
+  const coalition = blocs.find(bloc => bloc.label === 'Coalition');
+  const coalitionLabel = coalition ? `Coalition (LIB + NAT): ${num(coalition.total)}` : '';
+  const seats = blocs.flatMap(bloc => bloc.parties).flatMap(p =>
     byStage.flatMap(stage => p[stage].map(seat => `<span class="${tint(p.party)}" data-stage="${stage}" title="${esc(`${roster[seat.id] ?? seat.id} · ${partyAbbreviation(seat.party)} ${stageLabel(stage)}${seat.stale ? ' · Stale' : ''}`)}"></span>`)));
   const unallocated = Math.max(0,88-total);
-  const description = [...parties.filter(p => p.total).map(p => `${partyAbbreviation(p.party)} ${p.total}`),...(staleCount ? [`${staleCount} stale`] : []),`${unallocated} unallocated`,'45 seats for a majority'].join(', ');
+  const description = [...(coalitionLabel ? [coalitionLabel] : []),...parties.filter(p => p.total).map(p => `${partyAbbreviation(p.party)} ${p.total}`),...(staleCount ? [`${staleCount} stale`] : []),`${unallocated} unallocated`,'45 seats for a majority'].join(', ');
   const bar = `<div class="seatline" role="img" aria-label="${esc(`Seat outlook: ${description}`)}">${seats.join('')}${'<span></span>'.repeat(unallocated)}</div>
-    <div class="seatnote meta"><span>${total} of 88 seats in the outlook${staleLabel}</span><strong>45 seats for a majority</strong></div>
+    <div class="seatnote meta"><span>${total} of 88 seats in the outlook${staleLabel}</span>${coalitionLabel ? `<span>${coalitionLabel}</span>` : ''}<strong>45 seats for a majority</strong></div>
     <ul class="seat-legend meta" aria-label="Seat confidence legend">${[...seatStages,'unallocated'].map(stage => `<li><span data-stage="${stage}" aria-hidden="true"></span>${stageLabel(stage)}</li>`).join('')}</ul>`;
   const breakdown = `<div class="card"><h3>Seats by Party</h3>${table(['Party',...seatStages.map(stageLabel),'Total'],parties.map(p => `<tr class="${tint(p.party)}"><th scope="row">${p.party === 'Other' ? 'Other' : partyShort(p.party)}</th>${seatStages.map(stage => cell(num(p[stage].length))).join('')}${cell(`<strong>${num(p.total)}</strong>${staleSeats(p) ? ` <small class="stale">(${staleSeats(p)} stale)</small>` : ''}`)}</tr>`).join(''),'Seats by Party','statewide-party-table seat-breakdown')}<p class="swing-baseline meta">Leading shows the published TCP leader when there is no stronger call. Stale seats use the last successful district count.</p></div>`;
   return {bar,breakdown};
@@ -115,8 +125,10 @@ function renderHeaderOutlook(parties) {
   const outlook = $('header-outlook');
   outlook.hidden = snapshot?.status === 'archive';
   if (outlook.hidden) return;
-  const counts = parties.filter(p => p.total).sort((a,b) => b.total-a.total);
-  outlook.innerHTML = `<span class="meta">${demo ? 'Demo' : 'Seat outlook'}${counts.length ? '' : ' · No calls yet'}</span>${counts.map(({party,total}) => `<span class="header-seat ${tint(party)}">${party === 'Other' ? 'Other' : partyShort(party)} <strong>${num(total)}</strong></span>`).join('')}`;
+  const blocs = seatBlocs(parties);
+  outlook.innerHTML = `<span class="meta">${demo ? 'Demo' : 'Seat outlook'}${blocs.length ? '' : ' · No calls yet'}</span>${blocs.map(({label,total,parties}) => label === 'Coalition'
+    ? `<span class="header-seat" title="${esc(parties.map(p => `${p.party} ${num(p.total)}`).join(' + '))}">Coalition <strong>${num(total)}</strong></span>`
+    : `<span class="header-seat ${tint(label)}">${label === 'Other' ? 'Other' : partyShort(label)} <strong>${num(total)}</strong></span>`).join('')}`;
 }
 
 function statewideView(parties) {

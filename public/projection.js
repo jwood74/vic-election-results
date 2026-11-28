@@ -239,7 +239,7 @@ export function projectDistrictFromTotals(row, historicalFp) {
   if (!tally(fp,fp.length) || !tally(historical,historical.length) || !priorFormal || !tally(votes,2) ||
       !aligned(row.two,row.fp) || !formal || !tcpCount || tcpCount > formal) return null;
   const projectedTotal = Math.max(formal, Number.isSafeInteger(row.enrolled) ? Math.min(priorFormal,row.enrolled) : priorFormal);
-  if (formal/projectedTotal < 0.35 || tcpCount/projectedTotal < 0.20) return null;
+  if (formal/projectedTotal < 0.25 || tcpCount/projectedTotal < 0.20) return null;
 
   const share = Math.max(...votes)/tcpCount;
   const leader = votes[0] === votes[1] ? null : row.two[votes[0] > votes[1] ? 0 : 1];
