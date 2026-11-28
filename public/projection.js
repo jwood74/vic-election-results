@@ -74,20 +74,23 @@ function studentUpperProbability(t, df) {
   return 0.5 + 0.5 * integral(Math.atan(t/Math.sqrt(df)))/integral(Math.PI/2);
 }
 
-function estimateWinProbability({ swings, first, tcpCount, projectedTotal, remaining, fpEstimated, extraTurnout, officialPair, leader }) {
-  if (!officialPair || !leader || swings.length < 4 || tcpCount/projectedTotal < 0.10) return null;
+function estimateWinProbability({ swings, completed, first, tcpCount, projectedTotal, remaining, fpEstimated, extraTurnout, officialPair, leader }) {
+  if (!officialPair || !leader || tcpCount/projectedTotal < 0.10) return null;
   // Booths are clusters: one large batch is not thousands of independent observations.
-  const observations = swings.map(({current,old}) => ({weight:sum(current), swing:current[0]/sum(current)-old[0]/sum(old)}));
+  const observations = completed
+    ? completed.map(votes => ({weight:sum(votes),value:votes[0]/sum(votes)}))
+    : swings.map(({current,old}) => ({weight:sum(current),value:current[0]/sum(current)-old[0]/sum(old)}));
+  if (observations.length < 4) return null;
   const weight = sum(observations.map(o => o.weight));
   const effectiveBooths = weight**2/sum(observations.map(o => o.weight**2));
   if (effectiveBooths < 3) return null;
-  const mean = sum(observations.map(o => o.swing*o.weight))/weight;
-  const variance = sum(observations.map(o => o.weight*(o.swing-mean)**2))/weight * effectiveBooths/(effectiveBooths-1);
+  const mean = sum(observations.map(o => o.value*o.weight))/weight;
+  const variance = sum(observations.map(o => o.weight*(o.value-mean)**2))/weight * effectiveBooths/(effectiveBooths-1);
   // These explicit model-error allowances cover count composition and correlated
   // errors that booth-to-booth variance alone misses. They aren't fitted parameters.
   const scale = Math.hypot(
     Math.sqrt(variance/effectiveBooths)*remaining/projectedTotal,
-    0.06*remaining/projectedTotal,
+    (completed ? 0.10 : 0.06)*remaining/projectedTotal,
     0.08*fpEstimated/projectedTotal,
     0.15*extraTurnout/projectedTotal,
     0.005,
@@ -218,7 +221,7 @@ export function projectDistrict(row, detail, { tcp:history, final, fp:historical
   const supportingBooths = currentOnly ? completed.length : matched.length;
   const likely = leader && officialPair && observedBooths >= 4 && formal/projectedTotal >= 0.35 && tcpCount/projectedTotal >= 0.15 && stress(0.20,extraTurnout);
   const leaning = leader && supportingBooths >= 2 && formal/projectedTotal >= 0.10 && stress(0.075,0);
-  const winProbability = estimateWinProbability({swings,first,tcpCount,projectedTotal,remaining,fpEstimated,extraTurnout,officialPair,leader});
+  const winProbability = estimateWinProbability({swings,completed:currentOnly ? completed : null,first,tcpCount,projectedTotal,remaining,fpEstimated,extraTurnout,officialPair,leader});
   const projectedShare = leader ? 100 * Math.max(first,1-first) : 50;
   const projectedSwing = leader && finalVotes ? projectedShare - 100 * finalVotes[pair.indexOf(leader)]/sum(finalVotes) : null;
   return { leader, share:projectedShare, projectedSwing, remaining, fpEstimated, tcpCount,

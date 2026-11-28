@@ -83,7 +83,7 @@ test('reconciles pooled TCP against venue-level prepoll and excludes moved booth
   assert.equal(projectDistrict(row,detail,{tcp:history,moved:['Venue 0']}),null);
 });
 
-test('a changed pair can yield Likely from completed current booths without a historical TCP swing', () => {
+test('a changed pair uses completed current booths for confidence and win chance', () => {
   const people = [candidates[0], {name:'D',party:'One Nation'}, candidates[2]];
   const currentPair = people.slice(0,2);
   const booths = Array.from({length:5},(_,i) => booth(i,i === 4 ? [40,30,30] : [50,20,30]));
@@ -96,7 +96,11 @@ test('a changed pair can yield Likely from completed current booths without a hi
   assert.equal(estimate.completedBooths,4);
   assert.equal(estimate.share,74);
   assert.equal(estimate.projectedSwing,null);
-  assert.equal(estimate.winProbability,null);
+  const variableTcp = {...tcp,booths:[60,80,80,80].map((first,i) => booth(i,[first,100-first]))};
+  const variable = projectDistrict(row,{...detail,tcp:variableTcp},baseline);
+  assert.equal(variable.share,estimate.share);
+  assert.ok(variable.winProbability > 0.5 && variable.winProbability < estimate.winProbability);
+  assert.equal(projectDistrict({...row,enrolled:6000},detail,{...baseline,fp:{Labor:2000,Liberal:2000,Greens:1000}}).winProbability,null);
   assert.equal(projectedParty(row,estimate).label,'Likely');
   const close = {...row,two:withVotes(currentPair,[224,176])};
   const closeDetail = {...detail,tcp:{...tcp,booths:tcp.booths.map((_,i) => booth(i,[56,44]))}};
