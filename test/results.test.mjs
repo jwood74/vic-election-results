@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { districts, districtLinks, EXPECTED, collect, loadBooths, parseBooths, parseDistrict, parseFinalResult, parseTcpBooths } from '../lib/vec.mjs';
 import { strToU8, zipSync } from 'fflate';
-import { boothComparisons, boothMatchedTcpSwing, districtTcpSwing, electorateSwing, finalTcp, historicalBoothTcp, matchedSwing, matchedTcp, partyAbbreviation, partySwing, partyVotes, race, statewide } from '../public/model.js';
+import { boothComparisons, boothMatchedTcpSwing, districtTcpSwing, electorateSwing, finalTcp, historicalBoothTcp, matchedSwing, matchedTcp, partyAbbreviation, partySwing, partyVotes, race, retainSnapshotRows, statewide } from '../public/model.js';
 import historical from '../public/data/historical-results.json' with { type:'json' };
 import archiveTcp from '../public/data/tcp-2022.json' with { type:'json' };
 import { api } from '../lib/api.mjs';
@@ -222,6 +222,17 @@ test('collector publishes a compact projection alongside district totals', async
   assert.equal(snapshot.results[0].projection.tcpCount,1900);
   assert.equal(snapshot.results[0].projection.matchedTcp,1);
   assert.equal(snapshot.results[0].projection.confidence,'Uncertain');
+  const first = snapshot.results[0];
+  pages.delete(`${bass}/tcp`);
+  const partial = await collect(snapshot,async url => pages.get(url) ?? null,() => new Date(Date.parse(snapshot.at)+11*60_000).toISOString());
+  assert.deepEqual(partial.results[0].projection,first.projection);
+  assert.equal(partial.results[0].projectionAt,first.projectionAt);
+  assert.equal(partial.results[0].projectionStale,true);
+  assert.deepEqual(retainSnapshotRows(snapshot,{status:'partial',results:[{id:'evelyn'}]}).results,[{id:'evelyn'},{...first,stale:true}]);
+  assert.equal(retainSnapshotRows(snapshot,{status:'waiting',results:[]}).status,'stale');
+  pages.set(`${bass}/tcp`,table('Mis-sorts',[900,1000,0,1900]));
+  const recovered = await collect(partial,async url => pages.get(url) ?? null);
+  assert.equal(recovered.results[0].projectionStale,undefined);
 });
 
 test('booth parser joins by candidate name and separates early and ordinary venues', () => {

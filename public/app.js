@@ -1,4 +1,4 @@
-import { boothComparisons, boothKey, boothMatchedTcpSwing, districtTcpSwing, electorateSwing, finalTcp, historicalBoothTcp, majorParties, matchedSwing, matchedTcp, partyAbbreviation, partyCode, partyName, partySwing, partyVotes, race, share, statewide, sum } from './model.js';
+import { boothComparisons, boothKey, boothMatchedTcpSwing, districtTcpSwing, electorateSwing, finalTcp, historicalBoothTcp, majorParties, matchedSwing, matchedTcp, partyAbbreviation, partyCode, partyName, partySwing, partyVotes, race, retainSnapshotRows, share, statewide, sum } from './model.js';
 import { projectedParty, seatOutlook, seatStages } from './projection.js';
 import { candidateKey, candidateLabel, countStarted, predictionModes, predictionResult, predictionSummary, readPredictions } from './predictions.js';
 
@@ -149,7 +149,9 @@ function statewideView(parties) {
     ${snapshot?.status === 'archive' ? '' : `<details class="prediction-notes meta"><summary>How to read the predictions</summary><p>Predicted result is the estimated final two-candidate-preferred (TCP) share. It combines published TCP, estimated preference flows for ballots with first preferences only, and historical TCP adjusted by swing at matched booths. Estimated votes left use historical turnout.</p><p>Leaning and Likely mean the projected lead survives increasingly adverse assumptions about remaining votes. Uncertain means the lead is sensitive to those assumptions or there is too little data. Gain or Hold appears only when the lead for the published TCP pair exceeds the maximum possible uncounted votes, using official enrolment. It compares with the historical TCP leader and remains subject to rechecks and the final preference distribution.</p></details>`}</section>`;
 }
 
-const predictionsAvailable = row => !['archive','stale'].includes(snapshot?.status) && !row?.stale;
+const predictionStale = row => Boolean(row && (snapshot?.status === 'stale' || row.stale || row.projectionStale));
+const lastPredictionTime = row => time(row?.projectionAt ?? row?.projectionCheckedAt ?? row?.at);
+const stalePredictionBadge = row => predictionStale(row) && row?.projection ? ` <small class="stale" title="${esc(lastPredictionTime(row) ? `Last calculated ${lastPredictionTime(row)} Melbourne time` : 'Last available prediction')}">Stale</small>` : '';
 const predictionBadge = call => call ? `<span class="badge${call.label === 'Declared' ? ' declared' : ''}">${call.candidate ? `${partyShort(call.candidate.party)} ` : ''}${esc(call.label)}</span>` : '—';
 
 const picksKey = `vic-votes-2026-${demo ? 'demo-' : ''}predictions`;
@@ -220,12 +222,12 @@ function predictionList() {
 }
 
 function predictionCells(row, history) {
-  if (!predictionsAvailable(row)) return '<td class="num">—</td><td>—</td>';
+  if (snapshot?.status === 'archive') return '<td class="num">—</td><td>—</td>';
   const projection = row?.projection;
-  const call = projectedParty(row,projection,history);
+  const call = projectedParty(row?.stale ? {...row,stale:false} : row,projection,history);
   const resultTitle = projection?.districtOnly ? `District-count estimate: extrapolates the published TCP share from ${num(projection.tcpCount)} votes while booth data is unavailable or out of sync.` : projection ? `${projection.assumedPair ? 'Assumes the historical TCP pair. ' : ''}${num(projection.tcpCount)} published TCP votes; ${num(projection.fpEstimated)} estimated from first preferences; ${num(projection.remaining)} estimated formal votes left. ${projection.currentOnly ? `Uses ${num(projection.completedBooths)} completed election-day booths from this election.` : `${projection.matched} matched booths${projection.matchedTcp ? ' with TCP' : ' with estimated TCP'}.`}` : '';
   const projectedName = projection?.leader ? partyName(projection.leader.party) : '';
-  const result = projection ? `<td class="num ${projectedName ? tint(projectedName) : ''}"${projectedName ? ` aria-label="${esc(`${projectedName} ${pct(projection.share)}`)}"` : ''} title="${esc(`${projectedName ? `${projectedName} · ` : ''}${resultTitle}`)}">${projectedName ? pct(projection.share) : 'Tied · 50.00%'}</td>` : '<td class="num">—</td>';
+  const result = projection ? `<td class="num ${projectedName ? tint(projectedName) : ''}"${projectedName ? ` aria-label="${esc(`${projectedName} ${pct(projection.share)}${predictionStale(row) ? ' · stale' : ''}`)}"` : ''} title="${esc(`${projectedName ? `${projectedName} · ` : ''}${resultTitle}`)}">${projectedName ? pct(projection.share) : 'Tied · 50.00%'}${stalePredictionBadge(row)}</td>` : '<td class="num">—</td>';
   const callTitle = call?.locked ? `Published TCP lead exceeds the enrolment-based maximum of ${num(call.remaining)} votes still outside the TCP count.` : '';
   return `${result}<td${call?.candidate ? ` class="${tint(call.candidate.party)}"` : ''} title="${esc(callTitle)}">${predictionBadge(call)}</td>`;
 }
@@ -310,11 +312,11 @@ function projectionBreakdown(projection) {
 
 function districtRaceSummary(row) {
   if (snapshot?.status === 'archive') return '';
-  const fresh = predictionsAvailable(row);
+  const fresh = snapshot?.status !== 'stale' && !row?.stale;
   const comparisons = comparisonHistory?.districts?.[id];
   const old = priorBoothTcp(id);
-  const projection = fresh ? row?.projection : null;
-  const call = fresh ? projectedParty(row,projection,historicalResults?.[id]?.winner) : null;
+  const projection = row?.projection;
+  const call = projectedParty(row?.stale ? {...row,stale:false} : row,projection,historicalResults?.[id]?.winner);
   const current = race(row);
   const metric = (label,value,party,description,detail = '') => `<div class="race-metric ${party ? tint(party) : ''}"><dt>${label}</dt><dd${description ? ` aria-label="${esc(description)}" title="${esc(description)}"` : ''}>${value}</dd>${detail}</div>`;
   const currentValue = current.tied ? 'Tied · 50.00%' : pct(current.margin === null ? null : 50 + current.margin);
@@ -329,7 +331,8 @@ function districtRaceSummary(row) {
   const probability = !call?.locked && !row?.elected ? projection?.winProbability : null;
   const chance = probability == null ? '' : `<small class="race-chance">${probability > 0.99 ? '&gt;99%' : `≈${Math.round(100*probability)}%`} modelled win chance${call?.candidate ? '' : ` for ${partyShort(projection.leader.party)}`}</small>`;
   const leadText = current.leader ? `${partyName(current.leader.party)} leads the published TCP count by ${num(current.votes)} ${current.votes === 1 ? 'vote' : 'votes'}.` : current.tied ? 'The published TCP count is tied.' : '';
-  const context = !fresh ? 'Predictions are hidden while the district count is stale.'
+  const context = predictionStale(row) && projection ? `Showing the last available prediction${lastPredictionTime(row) ? ` from ${lastPredictionTime(row)} Melbourne time` : ''}.`
+    : !fresh ? 'Showing the last available district count.'
     : row?.elected ? 'The VEC has declared the result.'
     : call?.locked ? `${leadText} At most ${num(call.remaining)} votes are outside the TCP count, based on official enrolment. The lead cannot be overtaken for the published pair if the current tally stands.`
     : projection ? `${leadText}${leadText ? ' ' : ''}The estimate of votes still to report is based on historical turnout.`
@@ -337,7 +340,7 @@ function districtRaceSummary(row) {
   const projectionNote = projection ? `<p class="race-swing meta">${projection.districtOnly ? 'District-count estimate: assumes the remaining votes follow the published district TCP split. Leaning requires the lead to survive separate tests for a shift in outstanding votes and higher turnout.' : projection.currentOnly ? `Estimate uses ${num(projection.completedBooths)} completed election-day booths from this election. Booths still to report may vote differently.` : `${num(projection.matched)} matched ${projection.matched === 1 ? 'booth' : 'booths'} with ${projection.matchedTcp ? 'published TCP' : 'estimated TCP'}.${projection.assumedPair ? ' This projection assumes the historical TCP pair.' : ''}`}</p>` : '';
   return `<section class="card race-summary" aria-labelledby="race-summary-heading"><h3 id="race-summary-heading">Race summary</h3><dl class="race-metrics">
     ${metric('Current TCP',currentValue,current.leader?.party,current.leader && `${partyName(current.leader.party)} ${currentValue}`,matchedDetail)}
-    ${metric('Predicted result',predictedValue,projection?.leader?.party,projection?.leader && `${partyName(projection.leader.party)} ${predictedValue}`,projectedDetail)}
+    ${metric('Predicted result',`${predictedValue}${stalePredictionBadge(row)}`,projection?.leader?.party,projection?.leader && `${partyName(projection.leader.party)} ${predictedValue}${predictionStale(row) ? ' · stale' : ''}`,projectedDetail)}
     ${metric('Predicted party',`${predictionBadge(call)}${chance}`,call?.candidate?.party)}
     </dl>${projection ? projectionBreakdown(projection) : ''}${projectionNote}<p class="race-context meta">${esc(context)}</p>
     ${projection && !projection.districtOnly && !call?.locked ? `<details class="race-method meta"><summary>How win chance is estimated</summary><p>${chance ? '' : 'A percentage is shown once there is enough published TCP from enough booths. '}The model estimates the chance that the projected leader finishes above 50% for the published TCP pair. ${projection.currentOnly ? 'It uses the variation in TCP shares across completed election-day booths and allows more uncertainty about how the remaining booths will vote.' : 'It uses how consistently matched booths are swinging.'} It also accounts for TCP coverage, the projected margin, and uncertainty about preferences and turnout. These estimates have not been calibrated against past election-night counts and can change as more booths report.</p><p>Leaning and Likely use separate tests of whether the lead would survive worse-than-expected results in the remaining count. A mathematical lock requires a published lead larger than the official upper bound on votes still outside the TCP count.</p></details>` : ''}</section>`;
@@ -561,7 +564,7 @@ async function refresh() {
   $('refresh').disabled = true;
   let message, warning = false;
   try {
-    snapshot = await json('api/results');
+    snapshot = retainSnapshotRows(snapshot,await json('api/results'));
     if (snapshot.source) $('official').href = snapshot.source;
     if (id) {
       const next = await json(`api/results?district=${encodeURIComponent(id)}`).catch(() => ({status:'unavailable'}));

@@ -276,7 +276,7 @@ export function seatOutlook(rows, { allowProjections = true, staleSnapshot = fal
     const stage = call?.candidate ? (call.locked ? 'locked' : call.label.toLowerCase()) : 'leading';
     const party = partyName(candidate.party);
     const group = parties.get(party) ?? parties.get('Other');
-    group[stage].push({id:row.id,party,...(row.stale || staleSnapshot ? {stale:true} : {})});
+    group[stage].push({id:row.id,party,...(row.stale || staleSnapshot || row.projectionStale && ['leaning','likely'].includes(stage) ? {stale:true} : {})});
     group.total++;
   }
   return [...parties.values()].filter(group => group.party !== 'Other' || group.total);

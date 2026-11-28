@@ -48,6 +48,14 @@ export function race(row) {
     margin: valid ? gap / 2 : null, marginVotes: valid ? Math.ceil(votes / 2) : null };
 }
 
+export function retainSnapshotRows(previous, next) {
+  if (!previous?.results?.length || ['archive','demo'].includes(previous.status) || ['archive','demo'].includes(next.status)) return next;
+  if (!next.results?.length) return {...previous,status:'stale'};
+  const received = new Set(next.results.map(row => row.id));
+  const carried = previous.results.filter(row => !received.has(row.id)).map(row => ({...row,stale:true}));
+  return carried.length ? {...next,status:'partial',results:[...next.results,...carried]} : next;
+}
+
 export function statewide(rows) {
   const parties = new Map();
   const get = label => {
