@@ -322,6 +322,23 @@ function districtMarket() {
   </details>`;
 }
 
+function districtHistoricalResult() {
+  const supplementary = id === 'narracan' ? comparisonHistory?.districts?.[id] : null;
+  const result = supplementary?.tcp ?? tcpHistory?.districts?.[id];
+  const votes = result?.districtTotal;
+  if (result?.pair?.length !== 2 || votes?.length !== 2 || !votes.every(n => Number.isSafeInteger(n) && n >= 0) || votes[0] === votes[1]) return '';
+  const rows = result.pair.map((candidate, i) => ({...candidate, votes:votes[i]}));
+  const winner = rows[votes[0] > votes[1] ? 0 : 1];
+  const margin = share(winner.votes, sum(votes)) - 50;
+  const year = supplementary?.year ?? 2022;
+  const source = supplementary?.source ?? result.source;
+  return `<details id="district-history" class="card district-history"${$('district-history')?.open ? ' open' : ''}>
+    <summary id="district-history-toggle" class="${tint(winner.party)}" title="Winning TCP share above 50%">${year} winner: ${esc(partyName(winner.party))} (${pct(margin)})</summary>
+    <p class="meta">${supplementary ? `${year} supplementary election · ` : ''}Final two-candidate-preferred result${source ? ` · <a href="${esc(source)}">VEC results ↗</a>` : ''}</p>
+    ${candidateTable(rows, `${year} district two-candidate-preferred result`, false, 'all')}
+  </details>`;
+}
+
 function districtView() {
   const d = snapshot?.results?.find(r => r.id === id);
   const available = boothData?.status === 'ok';
@@ -337,8 +354,7 @@ function districtView() {
     : 'Matched swing appears when comparable booth results are available. Votes and Share use the full district count.';
   return `${expanded ? '' : `<section id="district-count"><div class="section-head"><h2>District count</h2><div class="count-status meta">${outcome(d)} ${star(id)}${d?.stale ? '<span class="stale">Previous district result</span>' : ''}${d?.source ? `<a href="${esc(d.source)}">VEC district results ↗</a>` : ''}</div></div>
   ${districtRaceSummary(d)}
-  ${districtPrediction(d)}
-  ${districtMarket()}
+  <div class="district-context">${districtHistoricalResult()}${districtPrediction(d)}${districtMarket()}</div>
   <div class="grid detail-grid"><div class="card"><h3>First preferences</h3>${candidateTable(fp, 'District first preferences', !historical, 'all')}${fp.length && swingNote ? empty(esc(swingNote)) : ''}</div><div class="card"><h3>Two-candidate-preferred</h3>${d?.twoStatus === 'withheld' ? empty('The VEC is not publishing a current TCP count.') : d?.twoStatus === 'replaced' ? empty('The VEC has replaced the TCP count with the preference distribution.') : candidateTable(tcp, 'District two-candidate-preferred', !historical, 'all') + (!historical && tcp.length ? empty(tcpSwingNote) : '')}</div></div></section>`}
   <section id="booths">${expanded ? '' : `<div class="section-head"><h2>Booth results</h2><a id="booth-size" class="outline" href="${esc(boothHref(id,true))}">⤢ Maximise booth table</a></div>`}
     ${!expanded && boothData?.tcpPreview ? '<p class="notice warn">TCP swing preview: simulated TCP votes compared with the official 2022 booth count. First preferences are from the 2022 archive.</p>' : ''}
