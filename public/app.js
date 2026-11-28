@@ -92,7 +92,7 @@ function seatOverview(parties) {
   const bar = `<div class="seatline" role="img" aria-label="${esc(`Seat outlook: ${description}`)}">${seats.join('')}${'<span></span>'.repeat(unallocated)}</div>
     <div class="seatnote meta"><span>${total} of 88 seats in the outlook</span><strong>45 seats for a majority</strong></div>
     <ul class="seat-legend meta" aria-label="Seat confidence legend">${[...seatStages,'unallocated'].map(stage => `<li><span data-stage="${stage}" aria-hidden="true"></span>${stageLabel(stage)}</li>`).join('')}</ul>`;
-  const breakdown = `<div class="card"><h3>Seats by Party</h3>${table(['Party',...seatStages.map(stageLabel),'Total'],parties.map(p => `<tr class="${tint(p.party)}"><th scope="row">${p.party === 'Other' ? 'Other' : partyShort(p.party)}</th>${seatStages.map(stage => cell(num(p[stage].length))).join('')}${cell(`<strong>${num(p.total)}</strong>`)}</tr>`).join(''),'Seats by Party','statewide-party-table seat-breakdown')}<p class="swing-baseline meta">Total includes projections and declarations. Uncertain and unreported seats stay unallocated.</p></div>`;
+  const breakdown = `<div class="card"><h3>Seats by Party</h3>${table(['Party',...seatStages.map(stageLabel),'Total'],parties.map(p => `<tr class="${tint(p.party)}"><th scope="row">${p.party === 'Other' ? 'Other' : partyShort(p.party)}</th>${seatStages.map(stage => cell(num(p[stage].length))).join('')}${cell(`<strong>${num(p.total)}</strong>`)}</tr>`).join(''),'Seats by Party','statewide-party-table seat-breakdown')}<p class="swing-baseline meta">Leading shows the published TCP leader when there is no stronger call. The total and seat bar include all five stages.</p></div>`;
   return {bar,breakdown};
 }
 

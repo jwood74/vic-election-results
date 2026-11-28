@@ -1,4 +1,4 @@
-import { boothKey, majorParties, partyName, sum, tcpSide, venueKey } from './model.js';
+import { boothKey, majorParties, partyName, race, sum, tcpSide, venueKey } from './model.js';
 
 const clamp = value => Math.max(0, Math.min(1, value));
 const tally = (votes, length) => votes?.length === length && votes.every(v => Number.isSafeInteger(v) && v >= 0);
@@ -241,16 +241,17 @@ export function projectedParty(row, projection, prior) {
   return row?.fp.some(c => c.votes > 0) ? {label:'Uncertain'} : null;
 }
 
-export const seatStages = ['leaning', 'likely', 'locked', 'declared'];
+export const seatStages = ['leading', 'leaning', 'likely', 'locked', 'declared'];
 
 export function seatOutlook(rows, { allowProjections = true } = {}) {
   const parties = new Map([...majorParties,'Other'].map(party => [party, {party, total:0, ...Object.fromEntries(seatStages.map(stage => [stage,[]]))}]));
   for (const row of rows) {
     if (!row.elected && (row.stale || !allowProjections)) continue;
     const call = projectedParty(row,row.projection);
-    if (!call?.candidate) continue;
-    const stage = call.locked ? 'locked' : call.label.toLowerCase();
-    const party = partyName(call.candidate.party);
+    const candidate = call?.candidate ?? race(row).leader;
+    if (!candidate) continue;
+    const stage = call?.candidate ? (call.locked ? 'locked' : call.label.toLowerCase()) : 'leading';
+    const party = partyName(candidate.party);
     const group = parties.get(party) ?? parties.get('Other');
     group[stage].push({id:row.id,party});
     group.total++;
