@@ -44,7 +44,7 @@ createServer(async (req, res) => {
       }
       return res.end(await response.text());
     }
-    const filename = ['/', '/status', '/status/'].includes(url.pathname) ? 'index.html' : url.pathname.slice(1);
+    const filename = ['/', '/status', '/status/', '/sportsbet', '/sportsbet/'].includes(url.pathname) ? 'index.html' : url.pathname.slice(1);
     if (!/^(?:data\/)?[a-z0-9-]+\.(?:html|js|css|json)$/.test(filename)) return res.writeHead(404).end();
     const body = await readFile(new URL(`../public/${filename}`, import.meta.url));
     res.writeHead(200, { 'Content-Type': `${types[filename.split('.').at(-1)]}; charset=utf-8` }).end(body);

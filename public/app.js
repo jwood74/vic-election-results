@@ -23,17 +23,18 @@ const json = async url => {
 };
 const params = new URLSearchParams(location.search);
 const statusPage = /^\/status\/?$/.test(location.pathname);
-const demo = !statusPage && params.get('demo') === '1';
-const id = statusPage ? null : params.get('district');
+const sportsbetPage = /^\/sportsbet\/?$/.test(location.pathname);
+const demo = !statusPage && !sportsbetPage && params.get('demo') === '1';
+const id = statusPage || sportsbetPage ? null : params.get('district');
 const expanded = id !== null && params.get('view') === 'booths';
-const myPredictions = !statusPage && id === null && params.get('view') === 'predictions';
+const myPredictions = !statusPage && !sportsbetPage && id === null && params.get('view') === 'predictions';
 const boothFilters = new Map([['all','All booths and vote types'],['ordinary','Election day booths'],['declaration','Declaration votes'],['reported','With results']]);
 let roster = {}, snapshot, boothData, history, tcpHistory, comparisonHistory, districtBaseline, demoTcpBaseline, pooledHistory, busy = false, invalid = false, dialogRefreshPending = false;
 let sportsbetOdds, historicalResults;
 const views = { search: '', watched: false, sort: 'name', districtUnits: 'share', boothSearch: params.get('q') ?? '', boothSort: params.get('sort') === 'votes' ? 'votes' : 'name', boothUnits: ['votes','swing'].includes(params.get('units')) ? params.get('units') : 'share', districtParty: '', boothParty: params.get('party') ?? '' };
 views.boothFilter = boothFilters.has(params.get('filter')) ? params.get('filter') : 'all';
 views.showAllParties = false;
-const districtViewKey = `vic-votes-2026-${demo ? 'demo-' : ''}district-view`;
+const districtViewKey = `vic-votes-2026-${demo ? 'demo-' : sportsbetPage ? 'sportsbet-' : ''}district-view`;
 try {
   const saved = JSON.parse(localStorage.getItem(districtViewKey));
   views.watched = saved?.watched === true;
@@ -84,12 +85,12 @@ const priorBoothTcp = key => historicalBoothTcp(historicalResults?.[key], compar
 const canCompare = row => snapshot?.status !== 'archive' && Object.hasOwn(districtBaseline ?? {}, row.id) && row.fp.some(c => c.votes > 0);
 function matrix(name, fixed, group, columns, rows, sortKey, active, summary = '') {
   const groups = typeof group === 'string' ? [{label:group,count:columns.length}] : group;
-  return `<div class="scroll matrix-scroll" tabindex="0" role="region" aria-label="${esc(name)}"><table class="matrix" aria-label="${esc(name)}"><thead><tr>${fixed.map((head,i) => `<th scope="col" rowspan="2"${i === 0 ? ' class="pinned"' : ''}>${head}</th>`).join('')}${groups.map(({label,count,tcp}) => `<th class="band-title${tcp ? ' tcp-band' : ''}" scope="colgroup" colspan="${count}">${esc(label)}</th>`).join('')}</tr><tr>${columns.map(({label,key,swing,tcp,display,candidate,edge}) => {
+  return `<div class="scroll matrix-scroll" tabindex="0" role="region" aria-label="${esc(name)}"><table class="matrix" aria-label="${esc(name)}"><thead><tr>${fixed.map((head,i) => `<th scope="col"${columns.length ? ' rowspan="2"' : ''}${i === 0 ? ' class="pinned"' : ''}>${head}</th>`).join('')}${groups.filter(g => g.count).map(({label,count,tcp}) => `<th class="band-title${tcp ? ' tcp-band' : ''}" scope="colgroup" colspan="${count}">${esc(label)}</th>`).join('')}</tr>${columns.length ? `<tr>${columns.map(({label,key,swing,tcp,display,candidate,edge}) => {
     const name = candidate ? `${label} (${candidate})` : label;
     const metric = tcp ? (swing ? ' TCP swing' : ' TCP') : (swing ? ' swing' : ' first preferences');
     const text = `${esc(display ?? partyAbbreviation(label))}${swing && !display ? ' Δ' : ''}${key && active === key ? ' ↓' : ''}`;
     return `<th scope="col" class="num ${label ? tint(label) : ''} ${swing ? 'swing-col' : ''} ${edge ?? ''}"${key && active === key ? ' aria-sort="descending"' : ''}>${key ? `<button type="button" data-${sortKey}="${esc(key)}" title="${esc(name + metric)}" aria-label="Sort by ${esc(name + metric)}">${text}</button>` : text}</th>`;
-  }).join('')}</tr>${summary}</thead><tbody>${rows}</tbody></table></div>`;
+  }).join('')}</tr>` : ''}${summary}</thead><tbody>${rows}</tbody></table></div>`;
 }
 
 const stageLabel = stage => stage[0].toUpperCase() + stage.slice(1);
@@ -131,6 +132,10 @@ function renderHeaderOutlook(parties) {
     : `<span class="header-seat ${tint(label)}">${label === 'Other' ? 'Other' : partyShort(label)} <strong>${num(total)}</strong></span>`).join('')}`;
 }
 
+function districtTableControls() {
+  return `<div class="tools"><input type="search" id="search" placeholder="Search districts" aria-label="Search districts" value="${esc(views.search)}"><label><input type="checkbox" id="watched" ${views.watched ? 'checked' : ''}> Watchlist only</label><select id="sort" aria-label="Sort districts"><option value="name">District A–Z</option><option value="close">Closest TCP</option><option value="votes">Most votes counted</option><option value="updated">Most recently updated</option></select>${sportsbetPage ? '' : '<select id="district-units" aria-label="District result display"><option value="share">Percentage</option><option value="votes">Votes</option><option value="swing">Swings</option></select>'}</div><div class="card" id="district-list"></div>`;
+}
+
 function statewideView(parties) {
   const results = snapshot?.results ?? [];
   const stats = statewide(results);
@@ -145,7 +150,7 @@ function statewideView(parties) {
     <div class="grid"><div class="card"><h3>First preferences by party</h3><div id="statewide-party-results">${visibleParties.length ? table(['Party','Votes','Share','Swing'],visibleParties.map(p => `<tr${majorParties.includes(p.label) ? ` class="${tint(p.label)}"` : ''}><th scope="row">${esc(p.label)}</th>${cell(num(p.votes))}${cell(pct(share(p.votes,stats.votes)))}${cell(delta(swings.get(p.label)),signed(swings.get(p.label)))}</tr>`).join(''),'Statewide votes by party', 'statewide-party-table') : empty('Party totals will appear when districts report.')}</div>${moreParties > 0 ? `<div class="swing-baseline meta"><button type="button" class="outline" id="show-more-parties" aria-expanded="${views.showAllParties}" aria-controls="statewide-party-results">${views.showAllParties ? 'Show fewer parties' : `Show ${moreParties} more ${moreParties === 1 ? 'party' : 'parties'}`}</button></div>` : ''}${swings.size ? `<p class="swing-baseline meta">Swing in percentage points vs ${demo ? 'the 2022 demo baseline' : `2022 across ${comparable.length} comparable ${comparable.length === 1 ? 'district' : 'districts'}`}.</p>` : ''}</div>
     ${seats.breakdown}</div></section>
     <section id="districts"><h2 class="section-head">District results</h2>
-    <div class="tools"><input type="search" id="search" placeholder="Search districts" aria-label="Search districts" value="${esc(views.search)}"><label><input type="checkbox" id="watched" ${views.watched ? 'checked' : ''}> Watchlist only</label><select id="sort" aria-label="Sort districts"><option value="name">District A–Z</option><option value="close">Closest TCP</option><option value="votes">Most votes counted</option><option value="updated">Most recently updated</option></select><select id="district-units" aria-label="District result display"><option value="share">Percentage</option><option value="votes">Votes</option><option value="swing">Swings</option></select></div><div class="card" id="district-list"></div>
+    ${districtTableControls()}
     ${snapshot?.status === 'archive' ? '' : `<details class="prediction-notes meta"><summary>How to read the predictions</summary><p>Predicted result is the estimated final two-candidate-preferred (TCP) share. It combines published TCP, estimated preference flows for ballots with first preferences only, and historical TCP adjusted by swing at matched booths. Estimated votes left use historical turnout.</p><p>Leaning and Likely mean the projected lead survives increasingly adverse assumptions about remaining votes. Uncertain means the lead is sensitive to those assumptions or there is too little data. Gain or Hold appears only when the lead for the published TCP pair exceeds the maximum possible uncounted votes, using official enrolment. It compares with the historical TCP leader and remains subject to rechecks and the final preference distribution.</p></details>`}</section>`;
 }
 
@@ -229,7 +234,8 @@ function predictionCells(row, history) {
   const projectedName = projection?.leader ? partyName(projection.leader.party) : '';
   const result = projection ? `<td class="num ${projectedName ? tint(projectedName) : ''}"${projectedName ? ` aria-label="${esc(`${projectedName} ${pct(projection.share)}${predictionStale(row) ? ' · stale' : ''}`)}"` : ''} title="${esc(`${projectedName ? `${projectedName} · ` : ''}${resultTitle}`)}">${projectedName ? pct(projection.share) : 'Tied · 50.00%'}${stalePredictionBadge(row)}</td>` : '<td class="num">—</td>';
   const callTitle = call?.locked ? `Published TCP lead exceeds the enrolment-based maximum of ${num(call.remaining)} votes still outside the TCP count.` : '';
-  return `${result}<td${call?.candidate ? ` class="${tint(call.candidate.party)}"` : ''} title="${esc(callTitle)}">${predictionBadge(call)}</td>`;
+  const namedWinner = sportsbetPage && (call?.candidate ?? projection?.leader);
+  return `${result}<td${call?.candidate ? ` class="${tint(call.candidate.party)}"` : ''} title="${esc(callTitle)}">${namedWinner ? `${esc(namedWinner.name)} ` : ''}${predictionBadge(call)}</td>`;
 }
 
 function freshnessView() {
@@ -249,8 +255,9 @@ function freshnessView() {
 function districtList() {
   const rows = new Map(snapshot?.results?.map(r => [r.id, r]));
   const list = Object.entries(roster).filter(([key,name]) => (!views.watched || watched.has(key)) && name.toLowerCase().includes(views.search.trim().toLowerCase()));
-  const parties = [...majorParties, 'Other'];
-  const {districtUnits:units, districtParty:active} = views;
+  const parties = sportsbetPage ? [] : [...majorParties, 'Other'];
+  const units = sportsbetPage ? 'share' : views.districtUnits;
+  const active = sportsbetPage ? '' : views.districtParty;
   const counts = units === 'votes', swings = units === 'swing';
   const ranked = new Map([...rows].map(([key,row]) => {
     const votes = partyVotes(row.fp, undefined, true);
@@ -277,14 +284,17 @@ function districtList() {
   list.sort(([a,an],[b,bn]) => (score(b) - score(a)) || an.localeCompare(bn));
   const format = swings ? delta : counts ? num : pct;
   const band = swings ? `First preference swing vs ${demo ? '2022 demo baseline' : '2022'}` : counts ? 'First preference votes' : 'First preference share';
-  $('district-list').innerHTML = list.length ? matrix('District results', ['District','TCP Share','TCP Swing','Predicted result','Predicted party','Formal votes'], band, parties.map(label => ({label,key:label,swing:swings})), list.map(([key,name]) => {
+  const heading = sportsbetPage ? ['District','Sportsbet favourite','TCP Share','TCP Swing','Predicted result','Predicted winner','Formal votes'] : ['District','TCP Share','TCP Swing','Predicted result','Predicted party','Formal votes'];
+  $('district-list').innerHTML = list.length ? matrix('District results', heading, band, parties.map(label => ({label,key:label,swing:swings})), list.map(([key,name]) => {
     const r = rows.get(key), data = ranked.get(key), lead = data?.tcp.leader;
     const tcpShare = data?.tcp.margin == null ? null : 50 + data.tcp.margin;
     const prior = priorTcp(key);
     const tcpSwing = snapshot?.status === 'archive' ? null : districtTcpSwing(r,prior,lead);
     const tcpTint = lead ? tint(lead.party) : '';
     const tcpDisplay = data?.tcp.tied ? `Tied · ${pct(tcpShare)}` : pct(tcpShare);
-    return `<tr><td class="pinned">${star(key)} <a href="${districtHref(key)}">${esc(name)}</a>${r?.elected ? ' <span class="badge declared">Declared</span>' : ''}${r?.stale ? ' <small class="stale">Stale</small>' : ''}</td>${cell(tcpDisplay,tcpTint,lead?.party)}${cell(delta(tcpSwing),`${tcpTint} ${signed(tcpSwing)}`)}${predictionCells(r,historicalResults?.[key]?.winner)}${cell(num(data?.formal || null))}${parties.map(p => { const n = value(key,p); return bandCell(p,format(n),swings ? `swing-col ${signed(n)}` : ''); }).join('')}</tr>`;
+    const market = sportsbetPage ? marketFavourite(key) : null;
+    const marketCell = sportsbetPage ? `<td${market?.party ? ` class="${tint(market.party)}"` : ''}>${market ? `${esc(market.names)} <small>${market.shortest.toFixed(2)}</small>` : '—'}</td>` : '';
+    return `<tr><td class="pinned">${star(key)} <a href="${districtHref(key)}">${esc(name)}</a>${r?.elected ? ' <span class="badge declared">Declared</span>' : ''}${r?.stale ? ' <small class="stale">Stale</small>' : ''}</td>${marketCell}${cell(tcpDisplay,tcpTint,lead?.party)}${cell(delta(tcpSwing),`${tcpTint} ${signed(tcpSwing)}`)}${predictionCells(r,historicalResults?.[key]?.winner)}${cell(num(data?.formal || null))}${parties.map(p => { const n = value(key,p); return bandCell(p,format(n),swings ? `swing-col ${signed(n)}` : ''); }).join('')}</tr>`;
   }).join(''), 'district-party', views.districtParty) : empty(views.watched ? 'No watched districts match this filter.' : 'No districts match this search.');
 }
 
@@ -364,13 +374,18 @@ function districtPrediction(row) {
   </details>`;
 }
 
-function districtMarket() {
-  const options = sportsbetOdds?.[id];
-  if (snapshot?.status === 'archive' || !options?.length) return '';
+function marketFavourite(key) {
+  const options = sportsbetOdds?.[key];
+  if (!options?.length) return null;
   const shortest = Math.min(...options.map(([, odds]) => odds));
   const favourites = options.filter(([, odds]) => odds === shortest).map(([label]) => label);
-  const favouriteParty = favourites.length === 1 ? favourites[0].replace(/^Independent \(.+\)$/, 'Independent') : '';
-  const names = new Intl.ListFormat('en-AU').format(favourites);
+  return {options,shortest,favourites,party:favourites.length === 1 ? favourites[0].replace(/^Independent \(.+\)$/, 'Independent') : '',names:new Intl.ListFormat('en-AU').format(favourites)};
+}
+
+function districtMarket() {
+  const market = marketFavourite(id);
+  if (snapshot?.status === 'archive' || !market) return '';
+  const {options,favourites,party:favouriteParty,names} = market;
   const rows = options.map(([label, odds]) => `<tr><th scope="row">${esc(label)}</th>${cell(odds.toFixed(2))}</tr>`).join('');
   return `<details id="district-market" class="card district-market"${$('district-market')?.open ? ' open' : ''}>
     <summary id="district-market-toggle" class="${favouriteParty ? tint(favouriteParty) : ''}">Sportsbet ${favourites.length === 1 ? 'favourite' : 'joint favourites'}: ${esc(names)}</summary>
@@ -480,7 +495,8 @@ function boothList() {
   const parties = [...majorParties.filter(p => labels.includes(p)), ...labels.filter(p => !majorParties.includes(p)).sort()];
   const primaryColumns = parties.map(label => ({label,key:`fp:${label}`,swing:showPrimarySwing}));
   const pair = tcp?.status === 'ok' ? tcp.pair : district?.two ?? [];
-  const sideIndex = ['Labor', 'Liberal'].map(p => pair.findIndex(c => partyName(c.party) === p)).find(i => i >= 0) ?? 0;
+  const districtLeader = race(district).leader;
+  const sideIndex = [district?.elected,districtLeader].map(candidate => pair.findIndex(c => c.name === candidate?.name)).find(i => i >= 0) ?? 0;
   const candidate = pair[sideIndex];
   const side = candidate ? { label:partyName(candidate.party), tcp:true, side:sideIndex, candidate:candidate.name } : {label:'',tcp:true};
   const tcpColumns = [
@@ -541,6 +557,9 @@ function render() {
   const oldScroll = $('content').querySelector(scrollSelector);
   if (statusPage) {
     $('content').innerHTML = freshnessView();
+  } else if (sportsbetPage) {
+    $('content').innerHTML = `<section aria-label="Sportsbet and district forecasts"><p class="meta">Sportsbet favourites are from a saved odds snapshot with no recorded capture time. District forecasts update with the count. An Uncertain label means the model has not called a winner.</p>${districtTableControls()}</section>`;
+    $('sort').value = views.sort; districtList();
   } else if (myPredictions) {
     $('content').innerHTML = predictionsView();
     predictionList();
@@ -712,6 +731,11 @@ try {
       $('status-link').setAttribute('aria-current','page');
       document.title = 'Data status · Victoria Votes 2026';
     }
+    if (sportsbetPage) {
+      $('back').hidden = false; $('title').hidden = false; $('title').textContent = 'Sportsbet and district forecasts';
+      $('sportsbet-link').setAttribute('aria-current','page');
+      document.title = 'Sportsbet and district forecasts · Victoria Votes 2026';
+    }
     if (!myPredictions && !statusPage) json('data/historical-results.json')
       .then(data => { historicalResults = data; render(); }, () => {});
     const historyFiles = ['history-2022.json','tcp-2022.json','booth-comparisons.json'];
@@ -728,7 +752,7 @@ try {
       $('official').href = demoIndex;
       render();
     } else {
-      if (id && !expanded) json('data/sportsbet-odds-2026.json')
+      if (sportsbetPage || (id && !expanded)) json('data/sportsbet-odds-2026.json')
         .then(data => { sportsbetOdds = data; render(); }, () => {});
       if (id) Promise.all([...historyFiles,'district-totals-2022.json'].map(file => json(`data/${file}`).catch(() => undefined)))
         .then(data => { [history,tcpHistory,comparisonHistory] = data; pooledHistory = data[3]?.pooled; render(); });

@@ -24,7 +24,7 @@ Each electorate's **Race summary** shows the current and projected TCP shares an
 
 The district page’s collapsed **Your prediction** card shows the party you picked for that seat. Expand it to see the candidates and status of your saved pre-count and live picks.
 
-The **Sportsbet favourite** heading below the race summary names the market option with the shortest odds, or lists joint favourites when tied. Expand it to see all quoted district-winner prices, shortest first. The supplied CSV has no capture timestamp. The snapshot is independent of the count forecast and **My Predictions**. To replace it with a newer CSV of the same format, run `python3 scripts/build-sportsbet-odds.py /path/to/odds.csv` and include the regenerated `public/data/sportsbet-odds-2026.json` in the deploy.
+The **Sportsbet favourite** heading below the race summary names the market option with the shortest odds, or lists joint favourites when tied. Expand it to see all quoted district-winner prices, shortest first. Open `/sportsbet` to compare market favourites and odds with current dashboard predictions across all 88 districts. The supplied CSV has no capture timestamp. The snapshot is independent of the count forecast and **My Predictions**. To replace it with a newer CSV of the same format, run `python3 scripts/build-sportsbet-odds.py /path/to/odds.csv` and include the regenerated `public/data/sportsbet-odds-2026.json` in the deploy.
 
 The district page’s **2022 winner** card shows the VEC’s declared winner and, where published, the final preference distribution or a labelled indicative TCP tally. Narracan shows its 2023 supplementary election result. Rebuild these results with `node scripts/build-historical-results.mjs`.
 
@@ -43,7 +43,7 @@ npm run dev
 
 Open <http://127.0.0.1:8888>. Use `ARCHIVE_PREVIEW=1 npm run dev` to exercise the viewer with six **labelled 2022 archive districts** while there are no live results. That mode is local only and deliberately suppresses swing. Use `npm test` for parser and calculation tests, and `npm run check:source` for a public-site smoke test. That command checks for the 2026 index first and falls back to the 2022 archive for validation only.
 
-To preview the outlined TCP swing columns with simulated values, run `ARCHIVE_PREVIEW=1 TCP_SWING_PREVIEW=1 npm run dev` and open `/?district=bass#booths`. Only this explicitly labelled local mode offsets the archived TCP votes. The table shows Labor's side if present, otherwise Liberal's, otherwise the first candidate in the VEC's published pair.
+To preview the outlined TCP swing columns with simulated values, run `ARCHIVE_PREVIEW=1 TCP_SWING_PREVIEW=1 npm run dev` and open `/?district=bass#booths`. Only this explicitly labelled local mode offsets the archived TCP votes. The TCP columns follow the declared winner or current district TCP leader when that candidate is in the booth pair. Otherwise they show the first candidate in the booth pair.
 
 ## Deploy on Netlify
 
