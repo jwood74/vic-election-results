@@ -98,6 +98,18 @@ export function matchedTcp(current, historical) {
   return result;
 }
 
+export function finalTcp(result) {
+  if (result?.kind !== 'distribution' || result.rows.length !== 2) return null;
+  return {pair:result.rows, districtTotal:result.rows.map(c => c.votes)};
+}
+
+export function historicalBoothTcp(result, archive) {
+  if (!result?.winner || archive?.pair?.length !== 2 || archive.districtTotal?.length !== 2) return null;
+  const final = finalTcp(result);
+  if (final && !archive.pair.every(c => final.pair.some(f => venueKey(f.name) === venueKey(c.name)))) return null;
+  return archive;
+}
+
 export function districtTcpSwing(row, historical, leader) {
   if (row?.twoStatus !== 'reported' || !leader || !historical?.districtTotal) return null;
   const pair = row.two;

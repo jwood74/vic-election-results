@@ -13,14 +13,15 @@ test('mixes published TCP, ten FP-only booths and five unreported booths without
   const booths = Array.from({length:20},(_,i) => booth(i, i < 5 ? [40,30,30] : i < 15 ? [33,37,30] : [null,null,null]));
   const row = {fp:withVotes(candidates,[530,520,450]),two:withVotes(pair,[300,200]),twoStatus:'reported'};
   const detail = {status:'ok',candidates,booths,tcp};
-  const result = projectDistrict(row,detail,{tcp:history});
+  const result = projectDistrict(row,detail,{tcp:history,final:{pair,districtTotal:[960,1040]}});
   assert.equal(result.tcpCount,500);
   assert.equal(result.fpEstimated,1000);
   assert.equal(result.remaining,500);
   assert.equal(result.matchedTcp,5);
   assert.ok(Math.abs(result.swing-10) < 1e-9);
   assert.ok(Math.abs(result.share-54) < 1e-9);
-  assert.ok(Math.abs(result.projectedSwing-9) < 1e-9);
+  assert.ok(Math.abs(result.projectedSwing-6) < 1e-9);
+  assert.equal(projectDistrict(row,detail,{tcp:history}).projectedSwing,null);
   assert.equal(result.leader.party,'Labor');
   assert.equal(result.confidence,'Uncertain');
   assert.equal(projectDistrict({...row,two:withVotes(pair,[301,200])},detail,{tcp:history}),null);
@@ -55,7 +56,7 @@ test('win chance responds to spread across booths and withholds a number for con
     const first = firstVotes.reduce((a,b) => a+b,0);
     const two = withVotes(pair,[first,total-first]);
     const booths = firstVotes.map((v,i) => booth(i,[v,totals[i]-v]));
-    return projectDistrict({fp:two,two,twoStatus:'reported'}, {status:'ok',candidates:pair,booths,tcp:{status:'ok',pair,booths}}, {tcp:history});
+    return projectDistrict({fp:two,two,twoStatus:'reported'}, {status:'ok',candidates:pair,booths,tcp:{status:'ok',pair,booths}}, {tcp:history,final:history});
   };
   const consistent = estimate([54,55,55,56]);
   const mixed = estimate([30,40,70,80]);
@@ -83,17 +84,16 @@ test('reconciles pooled TCP against venue-level prepoll and excludes moved booth
 });
 
 test('a mathematical TCP lock needs an official upper bound and must rule out a tie', () => {
-  const history = {pair,districtTotal:[490,510]};
   const row = {fp:withVotes(candidates,[490,290,120]),two:withVotes(pair,[550,350]),twoStatus:'reported',enrolled:1100};
   assert.equal(tcpLock(row),null); // Remaining 200 could tie the 200-vote lead.
   assert.equal(tcpLock({...row,enrolled:undefined}),null);
   assert.equal(tcpLock({...row,enrolled:800}),null);
   const locked = {...row,enrolled:1099};
-  assert.deepEqual(projectedParty(locked,null,history),{candidate:locked.two[0],label:'Gain',locked:true,remaining:199});
-  assert.equal(projectedParty(locked,null,{...history,districtTotal:[510,490]}).label,'Hold');
+  assert.deepEqual(projectedParty(locked,null,pair[1]),{candidate:locked.two[0],label:'Gain',locked:true,remaining:199});
+  assert.equal(projectedParty(locked,null,pair[0]).label,'Hold');
   assert.equal(projectedParty(locked,null,undefined).label,'TCP Locked');
   assert.equal(tcpLock({...locked,stale:true}),null);
-  assert.equal(projectedParty({...locked,elected:row.fp[1]},null,history).label,'Declared');
+  assert.equal(projectedParty({...locked,elected:row.fp[1]},null,pair[1]).label,'Declared');
 });
 
 test('seat outlook counts each race at its strongest stage and leaves provisional leads unallocated', () => {

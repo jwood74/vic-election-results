@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { districts, districtLinks, EXPECTED, collect, parseBooths, parseDistrict, parseTcpBooths } from '../lib/vec.mjs';
-import { boothComparisons, boothMatchedTcpSwing, districtTcpSwing, electorateSwing, matchedSwing, matchedTcp, partyAbbreviation, partySwing, partyVotes, race, statewide } from '../public/model.js';
+import { districts, districtLinks, EXPECTED, collect, parseBooths, parseDistrict, parseFinalResult, parseTcpBooths } from '../lib/vec.mjs';
+import { boothComparisons, boothMatchedTcpSwing, districtTcpSwing, electorateSwing, finalTcp, historicalBoothTcp, matchedSwing, matchedTcp, partyAbbreviation, partySwing, partyVotes, race, statewide } from '../public/model.js';
+import historical from '../public/data/historical-results.json' with { type:'json' };
+import archiveTcp from '../public/data/tcp-2022.json' with { type:'json' };
 
 const bass = `${EXPECTED}/results-by-district/bass-district-results`;
 const evelyn = `${EXPECTED}/results-by-district/evelyn-district-results`;
@@ -34,6 +36,29 @@ test('captures the official close-of-roll enrolment and keeps blanks distinct fr
   const enrolled = page('').replace('</main>', '<p class="list-item-title">Total enrolment as at close of rolls:</p><p class="list-item-body">49,984</p></main>');
   assert.equal(parseDistrict(enrolled,bass).enrolled,49984);
   assert.equal(parseDistrict(enrolled.replace('49,984','—'),bass).enrolled,null);
+});
+
+test('final preference distribution takes precedence over a conflicting indicative TCP', () => {
+  const elected = '<h3>Elected member</h3><p><strong>ONE, A</strong></p>';
+  const html = page(resultTable('Preferred votes',495,505), elected + resultTable('Votes after distribution',510,490));
+  assert.deepEqual(finalTcp(parseFinalResult(html)).districtTotal,[510,490]);
+  assert.equal(finalTcp(parseFinalResult(page(resultTable('Preferred votes',510,490),elected))),null);
+});
+
+test('Pakenham uses the declared Labor district result and the same-pair indicative booth baseline', () => {
+  assert.deepEqual(Object.keys(historical).sort(),Object.keys(districts).sort());
+  const result = historical.pakenham;
+  assert.equal(result.winner.name,'VULIN, Emma');
+  assert.deepEqual(finalTcp(result).districtTotal,[19587,19280]);
+  const two = [{name:'Current Labor',party:'Labor',votes:500},{name:'Current Liberal',party:'Liberal',votes:500}];
+  assert.equal(districtTcpSwing({two,twoStatus:'reported'},finalTcp(result),two[0]).toFixed(2),'-0.39');
+  const booth = {name:'Pakenham Central',kind:'ordinary',votes:[520,480]};
+  const baseline = historicalBoothTcp(result,archiveTcp.districts.pakenham);
+  assert.equal(matchedTcp({status:'ok',pair:two,booths:[booth]},baseline).get('ordinary:pakenham central').swing[0].toFixed(2),'1.52');
+  for (const id of ['shepparton','hawthorn','kew']) {
+    assert.equal(historicalBoothTcp(historical[id],archiveTcp.districts[id]),null,id);
+  }
+  assert.equal(historicalBoothTcp(historical.bass,archiveTcp.districts.bass),archiveTcp.districts.bass);
 });
 
 test('party swing uses share of formal votes and compares parties entering or leaving the race', () => {

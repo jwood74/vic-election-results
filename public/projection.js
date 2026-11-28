@@ -95,7 +95,7 @@ function estimateWinProbability({ swings, first, tcpCount, projectedTotal, remai
   return Math.min(0.999,studentUpperProbability(Math.abs(first-0.5)/scale,effectiveBooths-1));
 }
 
-export function projectDistrict(row, detail, { tcp:history, fp:historicalFp, moved = [] } = {}) {
+export function projectDistrict(row, detail, { tcp:history, final, fp:historicalFp, moved = [] } = {}) {
   if (!row || row.stale || row.elected || ['withheld','replaced'].includes(row.twoStatus) || detail?.status !== 'ok') return null;
   const fp = row.fp.map(c => c.votes);
   const formal = sum(fp);
@@ -123,7 +123,9 @@ export function projectDistrict(row, detail, { tcp:history, fp:historicalFp, mov
   if (sum(unallocatedFp)) fpBuckets.set('residual', {kind:'residual',votes:unallocatedFp});
 
   const oldVotes = oldOrder.map(i => history.districtTotal[i]);
-  const fallbackFlow = priorFlow(historicalFp,oldVotes,pair);
+  const finalOrder = final && aligned(pair,final.pair,tcpSide);
+  const finalVotes = finalOrder && finalOrder.map(i => final.districtTotal[i]);
+  const fallbackFlow = priorFlow(historicalFp,finalVotes ?? oldVotes,pair);
   const flows = new Map();
   let overallFlow = [0,0];
   for (const [key,b] of fpBuckets) {
@@ -203,18 +205,16 @@ export function projectDistrict(row, detail, { tcp:history, fp:historicalFp, mov
   const leaning = leader && matched.length >= 2 && formal/projectedTotal >= 0.10 && stress(0.10,0);
   const winProbability = estimateWinProbability({swings,first,tcpCount,projectedTotal,remaining,fpEstimated,extraTurnout,officialPair,leader});
   const projectedShare = leader ? 100 * Math.max(first,1-first) : 50;
-  const projectedSwing = leader ? projectedShare - 100 * oldVotes[pair.indexOf(leader)]/sum(oldVotes) : null;
+  const projectedSwing = leader && finalVotes ? projectedShare - 100 * finalVotes[pair.indexOf(leader)]/sum(finalVotes) : null;
   return { leader, share:projectedShare, projectedSwing, remaining, fpEstimated, tcpCount,
     matched:matched.length, matchedTcp:swings.length, swing:100*swing, swingParty:pair[0].party, assumedPair:!officialPair,
     confidence:likely ? 'Likely' : leaning ? 'Leaning' : 'Uncertain', winProbability };
 }
 
-export function projectedParty(row, projection, history) {
+export function projectedParty(row, projection, prior) {
   if (row?.elected) return {candidate:row.elected, label:'Declared'};
   const lock = tcpLock(row);
   if (lock) {
-    const old = history?.districtTotal;
-    const prior = old?.[0] > old?.[1] ? history.pair?.[0] : old?.[1] > old?.[0] ? history.pair?.[1] : null;
     const label = !prior ? 'TCP Locked' : partyName(prior.party) === partyName(lock.winner.party) ? 'Hold' : 'Gain';
     return {candidate:lock.winner, label, locked:true, remaining:lock.remaining};
   }

@@ -100,8 +100,18 @@ def main():
     district_ids = {compact(n): k for k, n in json.loads((DATA / 'districts.json').read_text()).items()}
     baseline = json.loads((DATA / 'history-2022.json').read_text())['districts']
     tcp = json.loads((DATA / 'tcp-2022.json').read_text())['districts']
+    official = json.loads((DATA / 'historical-results.json').read_text())
+
+    def compatible(district, data):
+        result = official[district]
+        pair = [name(c['name']) for c in data['pair']]
+        if len(pair) != 2 or len(data.get('districtTotal', [])) != 2:
+            return False
+        return (result['kind'] != 'distribution' or len(result['rows']) != 2
+                or set(pair) == {name(c['name']) for c in result['rows']})
+
     tcp_votes = {district: {name(b['name']): dict(enumerate(b['votes'])) for b in data['booths'] if b['kind'] == 'ordinary'}
-                 for district,data in tcp.items()}
+                 for district,data in tcp.items() if compatible(district, data)}
     historical = defaultdict(list)
     for district, records in baseline.items():
         for kind, label, votes in records:

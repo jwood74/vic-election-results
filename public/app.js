@@ -1,4 +1,4 @@
-import { boothComparisons, boothKey, boothMatchedTcpSwing, districtTcpSwing, electorateSwing, majorParties, matchedSwing, matchedTcp, partyAbbreviation, partyCode, partyName, partySwing, partyVotes, race, share, statewide, sum } from './model.js';
+import { boothComparisons, boothKey, boothMatchedTcpSwing, districtTcpSwing, electorateSwing, finalTcp, historicalBoothTcp, majorParties, matchedSwing, matchedTcp, partyAbbreviation, partyCode, partyName, partySwing, partyVotes, race, share, statewide, sum } from './model.js';
 import { projectedParty, seatOutlook, seatStages } from './projection.js';
 import { candidateKey, candidateLabel, countStarted, predictionModes, predictionResult, predictionSummary, readPredictions } from './predictions.js';
 
@@ -28,7 +28,7 @@ const expanded = id !== null && params.get('view') === 'booths';
 const myPredictions = id === null && params.get('view') === 'predictions';
 const boothFilters = new Map([['all','All booths and vote types'],['ordinary','Election day booths'],['declaration','Declaration votes'],['reported','With results']]);
 let roster = {}, snapshot, boothData, history, tcpHistory, comparisonHistory, districtBaseline, demoTcpBaseline, pooledHistory, busy = false, invalid = false, dialogRefreshPending = false;
-let sportsbetOdds;
+let sportsbetOdds, historicalResults;
 const views = { search: '', watched: false, sort: 'name', districtUnits: 'share', boothSearch: params.get('q') ?? '', boothSort: params.get('sort') === 'votes' ? 'votes' : 'name', boothUnits: ['votes','swing'].includes(params.get('units')) ? params.get('units') : 'share', districtParty: '', boothParty: params.get('party') ?? '' };
 views.boothFilter = boothFilters.has(params.get('filter')) ? params.get('filter') : 'all';
 function boothHref(district, full = expanded, keepParty = true) {
@@ -65,7 +65,8 @@ const signed = n => n > 0 ? 'positive' : n < 0 ? 'negative' : '';
 const tint = label => `party-${partyCode(label)}`;
 const bandCell = (label, value, extra = '') => cell(value, `${tint(label)} ${extra}`);
 const priorVotes = key => Object.entries(districtBaseline?.[key] ?? {}).map(([party,votes]) => ({party,votes}));
-const priorTcp = key => demo ? demoTcpBaseline?.[key] : comparisonHistory?.districts?.[key]?.tcp ?? tcpHistory?.districts?.[key];
+const priorTcp = key => demo ? demoTcpBaseline?.[key] : finalTcp(historicalResults?.[key]);
+const priorBoothTcp = key => historicalBoothTcp(historicalResults?.[key], comparisonHistory?.districts?.[key]?.tcp ?? tcpHistory?.districts?.[key]);
 const canCompare = row => snapshot?.status !== 'archive' && !row.stale && Object.hasOwn(districtBaseline ?? {}, row.id) && row.fp.some(c => c.votes > 0);
 function matrix(name, fixed, group, columns, rows, sortKey, active, summary = '') {
   const groups = typeof group === 'string' ? [{label:group,count:columns.length}] : group;
@@ -228,7 +229,7 @@ function districtList() {
     const tcpSwing = snapshot?.status === 'archive' || r?.stale ? null : districtTcpSwing(r,prior,lead);
     const tcpTint = lead ? tint(lead.party) : '';
     const tcpDisplay = data?.tcp.tied ? `Tied · ${pct(tcpShare)}` : pct(tcpShare);
-    return `<tr><td class="pinned">${star(key)} <a href="${districtHref(key)}">${esc(name)}</a>${r?.elected ? ' <span class="badge declared">Declared</span>' : ''}${r?.stale ? ' <small class="stale">Stale</small>' : ''}</td>${cell(tcpDisplay,tcpTint,lead?.party)}${cell(delta(tcpSwing),`${tcpTint} ${signed(tcpSwing)}`)}${predictionCells(r, demo ? tcpHistory?.districts?.[key] : prior)}${cell(num(data?.formal || null))}${parties.map(p => { const n = value(key,p); return bandCell(p,format(n),swings ? `swing-col ${signed(n)}` : ''); }).join('')}</tr>`;
+    return `<tr><td class="pinned">${star(key)} <a href="${districtHref(key)}">${esc(name)}</a>${r?.elected ? ' <span class="badge declared">Declared</span>' : ''}${r?.stale ? ' <small class="stale">Stale</small>' : ''}</td>${cell(tcpDisplay,tcpTint,lead?.party)}${cell(delta(tcpSwing),`${tcpTint} ${signed(tcpSwing)}`)}${predictionCells(r,historicalResults?.[key]?.winner)}${cell(num(data?.formal || null))}${parties.map(p => { const n = value(key,p); return bandCell(p,format(n),swings ? `swing-col ${signed(n)}` : ''); }).join('')}</tr>`;
   }).join(''), 'district-party', views.districtParty) : empty(views.watched ? 'No watched districts match this filter.' : 'No districts match this search.');
 }
 
@@ -258,9 +259,9 @@ function districtRaceSummary(row) {
   if (snapshot?.status === 'archive') return '';
   const fresh = predictionsAvailable(row);
   const comparisons = comparisonHistory?.districts?.[id];
-  const old = (demo ? null : comparisons?.tcp) ?? tcpHistory?.districts?.[id];
+  const old = priorBoothTcp(id);
   const projection = fresh ? row?.projection : null;
-  const call = fresh ? projectedParty(row,projection,old) : null;
+  const call = fresh ? projectedParty(row,projection,historicalResults?.[id]?.winner) : null;
   const current = race(row);
   const metric = (label,value,party,description,detail = '') => `<div class="race-metric ${party ? tint(party) : ''}"><dt>${label}</dt><dd${description ? ` aria-label="${esc(description)}" title="${esc(description)}"` : ''}>${value}</dd>${detail}</div>`;
   const currentValue = current.tied ? 'Tied · 50.00%' : pct(current.margin === null ? null : 50 + current.margin);
@@ -270,7 +271,7 @@ function districtRaceSummary(row) {
   const swingBaseline = currentSwing === null ? '' : ` title="${esc(`${currentSide.name} · ${matched.matched} matched election-day ${matched.matched === 1 ? 'booth' : 'booths'} vs ${comparisons?.year ?? 2022}`)}"`;
   const matchedDetail = `<dd class="race-matched-swing"${swingBaseline}>Booth-matched swing: ${currentSwing === null ? '—' : `${current.tied ? `${partyShort(currentSide.party)} ` : ''}<span class="${signed(currentSwing)}">${delta(currentSwing)}</span>`}</dd>`;
   const predictedValue = projection?.leader ? pct(projection.share) : projection ? 'Tied · 50.00%' : '—';
-  const projectedSwing = projection?.projectedSwing ?? null;
+  const projectedSwing = (projection?.baseline === 'final-results-v2' || demo) ? projection?.projectedSwing : null;
   const projectedDetail = `<dd class="race-projected-swing" title="Forecast final TCP share compared with the previous final district share for the same side">Projected swing: ${projectedSwing === null ? '—' : `<span class="${signed(projectedSwing)}">${delta(projectedSwing)}</span>`}</dd>`;
   const probability = !call?.locked && !row?.elected ? projection?.winProbability : null;
   const chance = probability == null ? '' : `<small class="race-chance">${probability > 0.99 ? '&gt;99%' : `≈${Math.round(100*probability)}%`} modelled win chance${call?.candidate ? '' : ` for ${partyShort(projection.leader.party)}`}</small>`;
@@ -323,19 +324,15 @@ function districtMarket() {
 }
 
 function districtHistoricalResult() {
-  const supplementary = id === 'narracan' ? comparisonHistory?.districts?.[id] : null;
-  const result = supplementary?.tcp ?? tcpHistory?.districts?.[id];
-  const votes = result?.districtTotal;
-  if (result?.pair?.length !== 2 || votes?.length !== 2 || !votes.every(n => Number.isSafeInteger(n) && n >= 0) || votes[0] === votes[1]) return '';
-  const rows = result.pair.map((candidate, i) => ({...candidate, votes:votes[i]}));
-  const winner = rows[votes[0] > votes[1] ? 0 : 1];
-  const margin = share(winner.votes, sum(votes)) - 50;
-  const year = supplementary?.year ?? 2022;
-  const source = supplementary?.source ?? result.source;
+  const result = historicalResults?.[id];
+  if (!result) return '';
+  const {rows, year, source, winner, kind} = result;
+  const margin = finalTcp(result) ? share(rows[0].votes, sum(rows.map(row => row.votes))) - 50 : null;
+  const label = kind === 'distribution' ? 'Final preference distribution' : kind === 'published-tcp' ? 'Published indicative TCP count' : 'Declared result';
   return `<details id="district-history" class="card district-history"${$('district-history')?.open ? ' open' : ''}>
-    <summary id="district-history-toggle" class="${tint(winner.party)}" title="Winning TCP share above 50%">${year} winner: ${esc(partyName(winner.party))} (${pct(margin)})</summary>
-    <p class="meta">${supplementary ? `${year} supplementary election · ` : ''}Final two-candidate-preferred result${source ? ` · <a href="${esc(source)}">VEC results ↗</a>` : ''}</p>
-    ${candidateTable(rows, `${year} district two-candidate-preferred result`, false, 'all')}
+    <summary id="district-history-toggle" class="${tint(winner.party)}"${margin === null ? '' : ' title="Winning share above 50% after preferences"'}>${year} winner: ${esc(partyName(winner.party))}${margin === null ? '' : ` (${pct(margin)})`}</summary>
+    <p class="meta">${id === 'narracan' ? `${year} supplementary election · ` : ''}${label} · <a href="${esc(source)}">VEC results ↗</a></p>
+    ${rows.length ? candidateTable(rows, `${year} ${label.toLowerCase()}`, false, 'all') : ''}
   </details>`;
 }
 
@@ -348,7 +345,7 @@ function districtView() {
   const swingByParty = new Map(matched?.parties.map(p => [p.label,p.swing]));
   const fp = (d?.fp ?? []).map(c => ({...c,swing:swingByParty.get(partyName(c.party))}));
   const tcp = (d?.two ?? []).map(c => ({...c,swing:historical || d.stale ? null : districtTcpSwing(d,priorTcp(id),c)}));
-  const tcpSwingNote = `Swing is in percentage points against ${demo ? 'the same subset of historical ballots' : id === 'narracan' ? 'the 2023 supplementary election district total' : 'the 2022 district total'}. A dash means no comparable TCP count.`;
+  const tcpSwingNote = `Swing is in percentage points against ${demo ? 'the same subset of historical ballots' : `the final ${id === 'narracan' ? '2023 supplementary' : '2022'} preference distribution`}. A dash means no comparable final pair.`;
   const swingNote = historical ? '' : matched?.reported
     ? `Swing compares ${matched.matches.size} of ${matched.reported} reporting booths with their ${matched.year} counterparts${matched.coverage !== null ? ` (${pct(matched.coverage)} of reported booth votes)` : ''}. Votes and Share use the full district count.`
     : 'Matched swing appears when comparable booth results are available. Votes and Share use the full district count.';
@@ -359,15 +356,17 @@ function districtView() {
   <section id="booths">${expanded ? '' : `<div class="section-head"><h2>Booth results</h2><a id="booth-size" class="outline" href="${esc(boothHref(id,true))}">⤢ Maximise booth table</a></div>`}
     ${!expanded && boothData?.tcpPreview ? '<p class="notice warn">TCP swing preview: simulated TCP votes compared with the official 2022 booth count. First preferences are from the 2022 archive.</p>' : ''}
     <div class="tools">${expanded ? `<label for="booth-district">Electorate</label><select id="booth-district">${Object.entries(roster).sort(([,a],[,b]) => a.localeCompare(b)).map(([key,name]) => `<option value="${esc(key)}"${key === id ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select>` : ''}<input type="search" id="booth-search" placeholder="Search voting centres" aria-label="Search voting centres" value="${esc(views.boothSearch)}"><select id="booth-sort" aria-label="Sort voting centres"><option value="name">Booth A–Z</option><option value="votes">Most votes</option></select><select id="booth-units" aria-label="Booth vote display"><option value="share">Vote share (%)</option><option value="votes">Vote counts</option><option value="swing">Swing</option></select>${expanded ? `<label class="booth-filter">Show <select id="booth-filter">${[...boothFilters].map(([value,label]) => `<option value="${value}"${views.boothFilter === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label>${historical ? `<span class="meta booth-preview">${boothData?.tcpPreview ? '2022 archive · Simulated TCP' : '2022 archive'}</span>` : ''}<div class="booth-actions"><a id="booth-size" class="outline" href="${esc(boothHref(id,false))}">↙ Back to district view</a></div>` : ''}</div>
-    ${hasRows || (expanded && d?.fp.some(c => c.votes !== null)) ? '<div id="booth-list" class="card"></div><p id="booth-swing-note" class="meta" hidden></p>' : ''}
-    ${hasRows ? `<p class="meta">${historical ? '' : `Swing is in percentage points against ${id === 'narracan' ? 'the 2023 supplementary election' : '2022'}. TCP requires the same two sides; ~ marks a nearby booth, spatial estimate or district proxy. `}${demo ? 'Demo counts use selected historical results.' : `${boothData.tcp?.status === 'withheld' ? 'The VEC is withholding TCP. ' : boothData.tcp?.status === 'unavailable' ? 'The TCP page could not be read. ' : !boothData.tcp?.booths?.length && !boothData.tcp?.pooled?.length ? 'No booth TCP available yet. ' : ''}Booth pages checked ${esc(time(boothData.at))} Melbourne time · <a href="${esc(boothData.source)}">VEC first preferences ↗</a>${boothData.tcp?.source ? ` · <a href="${esc(boothData.tcp.source)}">VEC TCP ↗</a>` : ''}`}</p>` : `<div class="card">${empty(demo ? 'No demo counts for this district. Try Bass, Gippsland East, Hawthorn, Melbourne, Northcote or Richmond.' : boothData?.status === 'unavailable' ? 'The voting-centre page could not be read. Try refreshing.' : 'No voting-centre rows available yet.')}</div>`}
+    ${hasRows || (expanded && d?.fp.some(c => c.votes !== null)) ? `<div id="booth-list" class="card"></div>${!historical && priorBoothTcp(id) ? `<p id="booth-tcp-baseline-note" class="meta" hidden>Booth TCP swing vs indicative ${id === 'narracan' ? '2023' : '2022'} booth count. ~ marks an estimate.</p>` : ''}<p id="booth-swing-note" class="meta" hidden></p>` : ''}
+    ${hasRows ? `<p class="meta">${demo ? 'Demo counts use selected historical results.' : `${boothData.tcp?.status === 'withheld' ? 'The VEC is withholding TCP. ' : boothData.tcp?.status === 'unavailable' ? 'The TCP page could not be read. ' : !boothData.tcp?.booths?.length && !boothData.tcp?.pooled?.length ? 'No booth TCP available yet. ' : ''}Booth pages checked ${esc(time(boothData.at))} Melbourne time · <a href="${esc(boothData.source)}">VEC first preferences ↗</a>${boothData.tcp?.source ? ` · <a href="${esc(boothData.tcp.source)}">VEC TCP ↗</a>` : ''}`}</p>` : `<div class="card">${empty(demo ? 'No demo counts for this district. Try Bass, Gippsland East, Hawthorn, Melbourne, Northcote or Richmond.' : boothData?.status === 'unavailable' ? 'The voting-centre page could not be read. Try refreshing.' : 'No voting-centre rows available yet.')}</div>`}
   </section><dialog id="booth-dialog" aria-labelledby="venue-name"><div id="booth-result"></div><form method="dialog"><button class="outline">Close</button></form></dialog>`;
 }
 
 function comparisonsForBooths() {
   const archive = snapshot?.status === 'archive';
-  return boothComparisons(boothData.booths, archive ? [] : history?.districts?.[id], !archive || boothData.tcpPreview ? tcpHistory?.districts?.[id] : null,
-    archive ? {} : comparisonHistory?.districts?.[id], boothData.tcp);
+  const old = !archive || boothData.tcpPreview ? priorBoothTcp(id) : null;
+  const extras = archive ? {} : comparisonHistory?.districts?.[id];
+  return boothComparisons(boothData.booths, archive ? [] : history?.districts?.[id], old,
+    {...extras,tcp:old,estimates:old ? extras?.estimates : extras?.estimates?.map(b => ({...b,tcp:null}))}, boothData.tcp);
 }
 
 function tcpValues(votes) {
@@ -380,7 +379,7 @@ function pooledBooths() {
   const extra = comparisonHistory?.districts?.[id];
   const year = extra?.year ?? 2022;
   const priorFp = archive ? null : extra?.pooled ?? pooledHistory?.[id];
-  const priorTcp = archive ? null : extra?.tcp ?? tcpHistory?.districts?.[id];
+  const priorTcp = archive ? null : priorBoothTcp(id);
   const tcp = boothData?.tcp;
   const keyedPools = rows => (rows ?? []).map(row => ({...row,name:row.kind}));
   const tcpSwings = matchedTcp({status:tcp?.status,pair:tcp?.pair,booths:keyedPools(tcp?.pooled)},
@@ -460,11 +459,16 @@ function boothList() {
   if (summary) {
     const matched = showPrimarySwing && !archive && booths.length && history && comparisonHistory ? electorateSwing(candidates, booths, history.districts[id], comparisonHistory.districts[id]) : null;
     const tcpVotes = pair.map(c => district.two?.find(r => r.name === c.name)?.votes ?? null);
+    const tcp = district.twoStatus === 'reported' && tcpVotes.every(v => v !== null) ? tcpValues(tcpVotes) : null;
+    if (tcp && !archive && !district.stale) tcp.swing = pair.map(c => districtTcpSwing(district,priorTcp(id),c));
     summaryRow = renderRow({votes:partyVotes(district.fp), total:sum(district.fp.map(c => c.votes)), swing:new Map(matched?.parties.map(p => [p.label,p.swing])),
-      tcp:district.twoStatus === 'reported' && tcpVotes.every(v => v !== null) ? tcpValues(tcpVotes) : null}, true);
+      tcp}, true);
   }
   const message = expanded && views.boothFilter !== 'all' ? 'No booths or vote categories match this filter.' : views.boothSearch.trim() ? 'No booths or vote categories match this search.' : 'No booth or vote-category results available yet.';
-  $('booth-list').innerHTML = (list.length || summaryRow ? matrix('Voting-centre results',['Voting centre or vote type', archive ? '2022 formal' : '2026 formal'], groups, columns, list.map(b => renderRow(b)).join(''), 'booth-party', views.boothParty, summaryRow) : '') + (list.length ? '' : empty(message));
+  const showTable = Boolean(list.length || summaryRow);
+  $('booth-list').innerHTML = (showTable ? matrix('Voting-centre results',['Voting centre or vote type', archive ? '2022 formal' : '2026 formal'], groups, columns, list.map(b => renderRow(b)).join(''), 'booth-party', views.boothParty, summaryRow) : '') + (list.length ? '' : empty(message));
+  const tcpNote = $('booth-tcp-baseline-note');
+  if (tcpNote) tcpNote.hidden = !showTable;
 }
 
 function render() {
@@ -637,6 +641,8 @@ try {
       document.title = `${demo ? 'Demo · ' : ''}${$('title').textContent} · Victoria Votes 2026`;
       $('navigation').hidden = expanded;
     }
+    if (!myPredictions) json('data/historical-results.json')
+      .then(data => { historicalResults = data; render(); }, () => {});
     const historyFiles = ['history-2022.json','tcp-2022.json','booth-comparisons.json'];
     if (demo) {
       const [{buildDemo,demoIndex},data,totals] = await Promise.all([import('./demo.js'),Promise.all(historyFiles.map(file => json(`data/${file}`))),json('data/district-totals-2022.json')]);
