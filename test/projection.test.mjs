@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { projectDistrict, projectedParty, seatOutlook, tcpLock } from '../public/projection.js';
+import { projectDistrict, projectDistrictFromTotals, projectedParty, seatOutlook, tcpLock } from '../public/projection.js';
 
 const candidates = [{name:'A',party:'Labor'},{name:'B',party:'Liberal'},{name:'C',party:'Greens'}];
 const pair = candidates.slice(0,2);
@@ -107,6 +107,21 @@ test('a changed pair uses completed current booths for confidence and win chance
   assert.equal(projectDistrict(close,closeDetail,baseline).confidence,'Leaning');
   const one = {...row,two:withVotes(currentPair,[75,25])};
   assert.equal(projectDistrict(one,{...detail,tcp:{...tcp,booths:tcp.booths.slice(0,1)}},baseline),null);
+});
+
+test('a district-only estimate needs substantial TCP coverage and can call at most Leaning', () => {
+  const row = {fp:withVotes(candidates,[19000,4900,11352]),two:withVotes(pair,[8633,4847]),twoStatus:'reported',enrolled:49842};
+  const historical = {Labor:22000,Liberal:14000,Greens:4512};
+  const estimate = projectDistrictFromTotals(row,historical);
+  assert.equal(estimate.districtOnly,true);
+  assert.equal(projectedParty(row,estimate).label,'Leaning');
+  assert.equal(estimate.winProbability,null);
+  assert.equal(projectDistrictFromTotals({...row,two:withVotes(pair,[4000,3000])},historical),null);
+  assert.equal(projectDistrictFromTotals({...row,two:withVotes(pair,[7400,6080])},historical).confidence,'Uncertain');
+  const ringwood = {...row,fp:withVotes(candidates,[6800,8300,4131]),two:withVotes(pair,[6030,7512])};
+  const ringwoodEstimate = projectDistrictFromTotals(ringwood,{Labor:18000,Liberal:18000,Greens:9753});
+  assert.equal(ringwoodEstimate.leader.party,'Liberal');
+  assert.equal(ringwoodEstimate.confidence,'Leaning');
 });
 
 test('a mathematical TCP lock needs an official upper bound and must rule out a tie', () => {

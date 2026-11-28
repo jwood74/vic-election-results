@@ -230,6 +230,28 @@ export function projectDistrict(row, detail, { tcp:history, final, fp:historical
     confidence:likely ? 'Likely' : leaning ? 'Leaning' : 'Uncertain', winProbability };
 }
 
+export function projectDistrictFromTotals(row, historicalFp) {
+  if (!row || row.stale || row.elected || row.twoStatus !== 'reported' || row.two?.length !== 2) return null;
+  const fp = row.fp.map(c => c.votes);
+  const historical = Object.values(historicalFp ?? {});
+  const formal = sum(fp), priorFormal = sum(historical);
+  const votes = row.two.map(c => c.votes), tcpCount = sum(votes);
+  if (!tally(fp,fp.length) || !tally(historical,historical.length) || !priorFormal || !tally(votes,2) ||
+      !aligned(row.two,row.fp) || !formal || !tcpCount || tcpCount > formal) return null;
+  const projectedTotal = Math.max(formal, Number.isSafeInteger(row.enrolled) ? Math.min(priorFormal,row.enrolled) : priorFormal);
+  if (formal/projectedTotal < 0.35 || tcpCount/projectedTotal < 0.20) return null;
+
+  const share = Math.max(...votes)/tcpCount;
+  const leader = votes[0] === votes[1] ? null : row.two[votes[0] > votes[1] ? 0 : 1];
+  const extra = Math.min(Math.round(priorFormal*0.05),Number.isSafeInteger(row.enrolled) ? Math.max(0,row.enrolled-projectedTotal) : Infinity);
+  // Check the two sources of uncertainty separately rather than stacking them.
+  const survivesShift = Math.max(...votes) + (projectedTotal-tcpCount)*clamp(share-0.075) > projectedTotal/2;
+  const survivesTurnout = share*projectedTotal > (projectedTotal+extra)/2;
+  return {districtOnly:true,leader,share:100*share,tcpCount,remaining:projectedTotal-formal,
+    fpEstimated:formal-tcpCount,projectedSwing:null,winProbability:null,
+    confidence:leader && survivesShift && survivesTurnout ? 'Leaning' : 'Uncertain'};
+}
+
 export function projectedParty(row, projection, prior) {
   if (row?.elected) return {candidate:row.elected, label:'Declared'};
   const lock = tcpLock(row);
