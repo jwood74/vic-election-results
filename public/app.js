@@ -15,17 +15,18 @@ const time = n => n ? new Intl.DateTimeFormat('en-AU', { timeZone: 'Australia/Me
 const cell = (value, classes = '', party) => `<td class="num ${classes}"${party ? ` aria-label="${esc(`${partyName(party)} ${value}`)}" title="${esc(partyName(party))}"` : ''}>${/^[+−-]?0(?:\.0+)?%?$/.test(value) ? `<span class="zero-value">${value}</span>` : value}</td>`;
 const table = (labels, body, name, cls = '', textColumns = 1) => `<div class="scroll" tabindex="0" role="region" aria-label="${esc(name)}"><table class="${cls}" aria-label="${esc(name)}"><thead><tr>${labels.map((h,i) => `<th scope="col"${i >= textColumns ? ' class="num"' : ''}>${h}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>`;
 const empty = text => `<p class="empty muted">${text}</p>`;
-const districtHref = id => `?district=${encodeURIComponent(id)}${demo ? '&demo=1' : ''}`;
+const districtHref = id => `/?district=${encodeURIComponent(id)}${demo ? '&demo=1' : ''}`;
 const json = async url => {
-  const res = await fetch(url, { signal: AbortSignal.timeout(25_000) });
+  const res = await fetch(`/${url}`, { signal: AbortSignal.timeout(25_000) });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 };
 const params = new URLSearchParams(location.search);
-const demo = params.get('demo') === '1';
-const id = params.get('district');
+const statusPage = /^\/status\/?$/.test(location.pathname);
+const demo = !statusPage && params.get('demo') === '1';
+const id = statusPage ? null : params.get('district');
 const expanded = id !== null && params.get('view') === 'booths';
-const myPredictions = id === null && params.get('view') === 'predictions';
+const myPredictions = !statusPage && id === null && params.get('view') === 'predictions';
 const boothFilters = new Map([['all','All booths and vote types'],['ordinary','Election day booths'],['declaration','Declaration votes'],['reported','With results']]);
 let roster = {}, snapshot, boothData, history, tcpHistory, comparisonHistory, districtBaseline, demoTcpBaseline, pooledHistory, busy = false, invalid = false, dialogRefreshPending = false;
 let sportsbetOdds, historicalResults;
@@ -67,7 +68,7 @@ const bandCell = (label, value, extra = '') => cell(value, `${tint(label)} ${ext
 const priorVotes = key => Object.entries(districtBaseline?.[key] ?? {}).map(([party,votes]) => ({party,votes}));
 const priorTcp = key => demo ? demoTcpBaseline?.[key] : finalTcp(historicalResults?.[key]);
 const priorBoothTcp = key => historicalBoothTcp(historicalResults?.[key], comparisonHistory?.districts?.[key]?.tcp ?? tcpHistory?.districts?.[key]);
-const canCompare = row => snapshot?.status !== 'archive' && !row.stale && Object.hasOwn(districtBaseline ?? {}, row.id) && row.fp.some(c => c.votes > 0);
+const canCompare = row => snapshot?.status !== 'archive' && Object.hasOwn(districtBaseline ?? {}, row.id) && row.fp.some(c => c.votes > 0);
 function matrix(name, fixed, group, columns, rows, sortKey, active, summary = '') {
   const groups = typeof group === 'string' ? [{label:group,count:columns.length}] : group;
   return `<div class="scroll matrix-scroll" tabindex="0" role="region" aria-label="${esc(name)}"><table class="matrix" aria-label="${esc(name)}"><thead><tr>${fixed.map((head,i) => `<th scope="col" rowspan="2"${i === 0 ? ' class="pinned"' : ''}>${head}</th>`).join('')}${groups.map(({label,count,tcp}) => `<th class="band-title${tcp ? ' tcp-band' : ''}" scope="colgroup" colspan="${count}">${esc(label)}</th>`).join('')}</tr><tr>${columns.map(({label,key,swing,tcp,display,candidate,edge}) => {
@@ -104,9 +105,8 @@ function renderHeaderOutlook(parties) {
 
 function statewideView(parties) {
   const results = snapshot?.results ?? [];
-  const fresh = results.filter(row => !row.stale);
-  const stats = statewide(fresh);
-  const comparable = fresh.filter(canCompare);
+  const stats = statewide(results);
+  const comparable = results.filter(canCompare);
   const swings = partySwing(partyVotes(comparable.flatMap(r => r.fp)), partyVotes(comparable.flatMap(r => priorVotes(r.id))));
   const seats = seatOverview(parties);
   return `<section id="statewide"><h1 class="section-head">Statewide overview</h1>
@@ -200,6 +200,18 @@ function predictionCells(row, history) {
   return `${result}<td${call?.candidate ? ` class="${tint(call.candidate.party)}"` : ''} title="${esc(callTitle)}">${predictionBadge(call)}</td>`;
 }
 
+function freshnessView() {
+  const rows = new Map(snapshot?.results?.map(row => [row.id,row]));
+  const counts = {Fresh:0,Stale:0,Unavailable:0};
+  const body = Object.entries(roster).sort(([,a],[,b]) => a.localeCompare(b)).map(([key,name]) => {
+    const row = rows.get(key);
+    const state = !row ? 'Unavailable' : row.stale || snapshot.status === 'stale' ? 'Stale' : 'Fresh';
+    counts[state]++;
+    return `<tr><th scope="row"><a href="${districtHref(key)}">${esc(name)}</a></th><td${state === 'Stale' ? ' class="stale"' : ''}>${state}</td><td>${esc(time(row?.at) ?? '—')}</td><td>${esc(time(row?.updatedAt) ?? '—')}</td></tr>`;
+  });
+  return `<section aria-label="District data freshness"><p>Fresh means the district page was read in the latest snapshot, even if no votes have been reported. Stale means its last successful result is still displayed. Times are Melbourne time.</p><div class="stats">${Object.entries(counts).map(([label,total]) => `<div class="stat"><small>${label}</small><strong>${total}</strong></div>`).join('')}</div><div class="card">${table(['District','Data status','Last successful read','Last result change'],body.join(''),'District data freshness','',4)}</div></section>`;
+}
+
 function districtList() {
   const rows = new Map(snapshot?.results?.map(r => [r.id, r]));
   const list = Object.entries(roster).filter(([key,name]) => (!views.watched || watched.has(key)) && name.toLowerCase().includes(views.search.trim().toLowerCase()));
@@ -235,7 +247,7 @@ function districtList() {
     const r = rows.get(key), data = ranked.get(key), lead = data?.tcp.leader;
     const tcpShare = data?.tcp.margin == null ? null : 50 + data.tcp.margin;
     const prior = priorTcp(key);
-    const tcpSwing = snapshot?.status === 'archive' || r?.stale ? null : districtTcpSwing(r,prior,lead);
+    const tcpSwing = snapshot?.status === 'archive' ? null : districtTcpSwing(r,prior,lead);
     const tcpTint = lead ? tint(lead.party) : '';
     const tcpDisplay = data?.tcp.tied ? `Tied · ${pct(tcpShare)}` : pct(tcpShare);
     return `<tr><td class="pinned">${star(key)} <a href="${districtHref(key)}">${esc(name)}</a>${r?.elected ? ' <span class="badge declared">Declared</span>' : ''}${r?.stale ? ' <small class="stale">Stale</small>' : ''}</td>${cell(tcpDisplay,tcpTint,lead?.party)}${cell(delta(tcpSwing),`${tcpTint} ${signed(tcpSwing)}`)}${predictionCells(r,historicalResults?.[key]?.winner)}${cell(num(data?.formal || null))}${parties.map(p => { const n = value(key,p); return bandCell(p,format(n),swings ? `swing-col ${signed(n)}` : ''); }).join('')}</tr>`;
@@ -274,7 +286,7 @@ function districtRaceSummary(row) {
   const current = race(row);
   const metric = (label,value,party,description,detail = '') => `<div class="race-metric ${party ? tint(party) : ''}"><dt>${label}</dt><dd${description ? ` aria-label="${esc(description)}" title="${esc(description)}"` : ''}>${value}</dd>${detail}</div>`;
   const currentValue = current.tied ? 'Tied · 50.00%' : pct(current.margin === null ? null : 50 + current.margin);
-  const matched = fresh ? boothMatchedTcpSwing(row,boothData?.tcp,old,comparisons?.moved) : null;
+  const matched = fresh && !boothData?.stale && !boothData?.tcp?.stale ? boothMatchedTcpSwing(row,boothData?.tcp,old,comparisons?.moved) : null;
   const currentSide = current.leader ?? (current.tied ? row.two[0] : null);
   const currentSwing = currentSide ? matched?.swing[row.two.indexOf(currentSide)] ?? null : null;
   const swingBaseline = currentSwing === null ? '' : ` title="${esc(`${currentSide.name} · ${matched.matched} matched election-day ${matched.matched === 1 ? 'booth' : 'booths'} vs ${comparisons?.year ?? 2022}`)}"`;
@@ -353,7 +365,7 @@ function districtView() {
   const matched = !expanded && available && !historical && history && comparisonHistory ? electorateSwing(boothData.candidates, boothData.booths, history.districts[id], comparisonHistory.districts[id]) : null;
   const swingByParty = new Map(matched?.parties.map(p => [p.label,p.swing]));
   const fp = (d?.fp ?? []).map(c => ({...c,swing:swingByParty.get(partyName(c.party))}));
-  const tcp = (d?.two ?? []).map(c => ({...c,swing:historical || d.stale ? null : districtTcpSwing(d,priorTcp(id),c)}));
+  const tcp = (d?.two ?? []).map(c => ({...c,swing:historical ? null : districtTcpSwing(d,priorTcp(id),c)}));
   const tcpSwingNote = `Swing is in percentage points against ${demo ? 'the same subset of historical ballots' : `the final ${id === 'narracan' ? '2023 supplementary' : '2022'} preference distribution`}. A dash means no comparable final pair.`;
   const swingNote = historical ? '' : matched?.reported
     ? `Swing compares ${matched.matches.size} of ${matched.reported} reporting booths with their ${matched.year} counterparts${matched.coverage !== null ? ` (${pct(matched.coverage)} of reported booth votes)` : ''}. Votes and Share use the full district count.`
@@ -363,6 +375,7 @@ function districtView() {
   <div class="district-context">${districtHistoricalResult()}${districtPrediction(d)}${districtMarket()}</div>
   <div class="grid detail-grid"><div class="card"><h3>First preferences</h3>${candidateTable(fp, 'District first preferences', !historical, 'all')}${fp.length && swingNote ? empty(esc(swingNote)) : ''}</div><div class="card"><h3>Two-candidate-preferred</h3>${d?.twoStatus === 'withheld' ? empty('The VEC is not publishing a current TCP count.') : d?.twoStatus === 'replaced' ? empty('The VEC has replaced the TCP count with the preference distribution.') : candidateTable(tcp, 'District two-candidate-preferred', !historical, 'all') + (!historical && tcp.length ? empty(tcpSwingNote) : '')}</div></div></section>`}
   <section id="booths">${expanded ? '' : `<div class="section-head"><h2>Booth results</h2><a id="booth-size" class="outline" href="${esc(boothHref(id,true))}">⤢ Maximise booth table</a></div>`}
+    ${boothData?.stale ? '<p class="notice warn">Showing the last successful booth results. These counts are stale.</p>' : boothData?.tcp?.stale ? `<p class="notice warn">Booth TCP is stale. Showing the last successful TCP count${boothData.tcp.at ? ` from ${esc(time(boothData.tcp.at))} Melbourne time` : ''}.</p>` : ''}
     ${!expanded && boothData?.tcpPreview ? '<p class="notice warn">TCP swing preview: simulated TCP votes compared with the official 2022 booth count. First preferences are from the 2022 archive.</p>' : ''}
     <div class="tools">${expanded ? `<label for="booth-district">Electorate</label><select id="booth-district">${Object.entries(roster).sort(([,a],[,b]) => a.localeCompare(b)).map(([key,name]) => `<option value="${esc(key)}"${key === id ? ' selected' : ''}>${esc(name)}</option>`).join('')}</select>` : ''}<input type="search" id="booth-search" placeholder="Search voting centres" aria-label="Search voting centres" value="${esc(views.boothSearch)}"><select id="booth-sort" aria-label="Sort voting centres"><option value="name">Booth A–Z</option><option value="votes">Most votes</option></select><select id="booth-units" aria-label="Booth vote display"><option value="share">Vote share (%)</option><option value="votes">Vote counts</option><option value="swing">Swing</option></select>${expanded ? `<label class="booth-filter">Show <select id="booth-filter">${[...boothFilters].map(([value,label]) => `<option value="${value}"${views.boothFilter === value ? ' selected' : ''}>${label}</option>`).join('')}</select></label>${historical ? `<span class="meta booth-preview">${boothData?.tcpPreview ? '2022 archive · Simulated TCP' : '2022 archive'}</span>` : ''}<div class="booth-actions"><a id="booth-size" class="outline" href="${esc(boothHref(id,false))}">↙ Back to district view</a></div>` : ''}</div>
     ${hasRows || (expanded && d?.fp.some(c => c.votes !== null)) ? `<div id="booth-list" class="card"></div>${!historical && priorBoothTcp(id) ? `<p id="booth-tcp-baseline-note" class="meta" hidden>Booth TCP swing vs indicative ${id === 'narracan' ? '2023' : '2022'} booth count. ~ marks an estimate.</p>` : ''}<p id="booth-swing-note" class="meta" hidden></p>` : ''}
@@ -469,7 +482,7 @@ function boothList() {
     const matched = showPrimarySwing && !archive && booths.length && history && comparisonHistory ? electorateSwing(candidates, booths, history.districts[id], comparisonHistory.districts[id]) : null;
     const tcpVotes = pair.map(c => district.two?.find(r => r.name === c.name)?.votes ?? null);
     const tcp = district.twoStatus === 'reported' && tcpVotes.every(v => v !== null) ? tcpValues(tcpVotes) : null;
-    if (tcp && !archive && !district.stale) tcp.swing = pair.map(c => districtTcpSwing(district,priorTcp(id),c));
+    if (tcp && !archive) tcp.swing = pair.map(c => districtTcpSwing(district,priorTcp(id),c));
     summaryRow = renderRow({votes:partyVotes(district.fp), total:sum(district.fp.map(c => c.votes)), swing:new Map(matched?.parties.map(p => [p.label,p.swing])),
       tcp}, true);
   }
@@ -482,14 +495,16 @@ function boothList() {
 
 function render() {
   if (invalid) return;
-  const parties = seatOutlook((snapshot?.results ?? []).filter(row => !row.stale),{allowProjections:!['archive','stale'].includes(snapshot?.status)});
+  const parties = seatOutlook(snapshot?.results ?? [],{allowProjections:!['archive','stale'].includes(snapshot?.status)});
   renderHeaderOutlook(parties);
   const active = document.activeElement;
   const focusId = active?.id;
   const focusStar = active?.dataset?.star;
   const scrollSelector = myPredictions ? '#pick-list .scroll' : '.matrix-scroll';
   const oldScroll = $('content').querySelector(scrollSelector);
-  if (myPredictions) {
+  if (statusPage) {
+    $('content').innerHTML = freshnessView();
+  } else if (myPredictions) {
     $('content').innerHTML = predictionsView();
     predictionList();
   } else if (id) {
@@ -514,19 +529,22 @@ async function refresh() {
   try {
     snapshot = await json('api/results');
     if (snapshot.source) $('official').href = snapshot.source;
-    if (id) boothData = await json(`api/results?district=${encodeURIComponent(id)}`).catch(() => ({status:'unavailable'}));
+    if (id) {
+      const next = await json(`api/results?district=${encodeURIComponent(id)}`).catch(() => ({status:'unavailable'}));
+      boothData = next.status !== 'ok' && boothData?.status === 'ok' ? {...boothData,stale:true} : next;
+    }
     const stamp = snapshot.at ? ` Last checked ${time(snapshot.at)} Melbourne time.` : '';
     switch (snapshot.status) {
       case 'archive': message = '2022 archive preview · six districts · not 2026 results.'; break;
       case 'waiting': message = 'Waiting for the VEC to publish 2026 results.' + stamp; break;
       case 'unverified': message = 'The VEC results page could not be verified yet.' + stamp; warning = true; break;
-      case 'partial': message = `Partial snapshot · ${snapshot.loaded} of 88 district pages read. Older district rows are marked stale and excluded from statewide totals.` + stamp; warning = true; break;
+      case 'partial': message = `Partial snapshot · ${snapshot.loaded} of 88 district pages read. Statewide totals include any last-known results carried forward from earlier reads.` + stamp; warning = true; break;
       case 'stale': message = 'Showing the last available VEC snapshot. The count may have moved on.' + stamp; warning = true; break;
       default: message = 'VEC public results · automatically checks for updates.' + stamp;
     }
   } catch {
     if (snapshot && snapshot.status !== 'archive') snapshot = { ...snapshot, status:'stale' };
-    boothData = { status:'unavailable' };
+    if (boothData?.status === 'ok') boothData = {...boothData,stale:true};
     message = 'The results service could not be reached.' + (snapshot?.results?.length ? ' Showing the last available snapshot.' : ''); warning = true;
   } finally {
     $('status-message').textContent = message;
@@ -650,7 +668,12 @@ try {
       document.title = `${demo ? 'Demo · ' : ''}${$('title').textContent} · Victoria Votes 2026`;
       $('navigation').hidden = expanded;
     }
-    if (!myPredictions) json('data/historical-results.json')
+    if (statusPage) {
+      $('back').hidden = false; $('title').hidden = false; $('title').textContent = 'Data status';
+      $('status-link').hidden = true;
+      document.title = 'Data status · Victoria Votes 2026';
+    }
+    if (!myPredictions && !statusPage) json('data/historical-results.json')
       .then(data => { historicalResults = data; render(); }, () => {});
     const historyFiles = ['history-2022.json','tcp-2022.json','booth-comparisons.json'];
     if (demo) {
@@ -670,7 +693,7 @@ try {
         .then(data => { sportsbetOdds = data; render(); }, () => {});
       if (id) Promise.all([...historyFiles,'district-totals-2022.json'].map(file => json(`data/${file}`).catch(() => undefined)))
         .then(data => { [history,tcpHistory,comparisonHistory] = data; pooledHistory = data[3]?.pooled; render(); });
-      else if (!myPredictions) Promise.all(['district-totals-2022.json','tcp-2022.json','booth-comparisons.json'].map(file => json(`data/${file}`).catch(() => undefined)))
+      else if (!myPredictions && !statusPage) Promise.all(['district-totals-2022.json','tcp-2022.json','booth-comparisons.json'].map(file => json(`data/${file}`).catch(() => undefined)))
         .then(([totals,tcp,comparisons]) => { districtBaseline = totals?.districts; tcpHistory = tcp; comparisonHistory = comparisons; render(); });
       render();
       await refresh();

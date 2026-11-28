@@ -4,6 +4,7 @@ import { districts, districtLinks, EXPECTED, collect, parseBooths, parseDistrict
 import { boothComparisons, boothMatchedTcpSwing, districtTcpSwing, electorateSwing, finalTcp, historicalBoothTcp, matchedSwing, matchedTcp, partyAbbreviation, partySwing, partyVotes, race, statewide } from '../public/model.js';
 import historical from '../public/data/historical-results.json' with { type:'json' };
 import archiveTcp from '../public/data/tcp-2022.json' with { type:'json' };
+import { api } from '../lib/api.mjs';
 
 const bass = `${EXPECTED}/results-by-district/bass-district-results`;
 const evelyn = `${EXPECTED}/results-by-district/evelyn-district-results`;
@@ -51,6 +52,37 @@ test('district update time survives refreshes and advances when a tally changes'
   votes++;
   const changed = await collect(refreshed,get,() => second);
   assert.equal(changed.results.find(r => r.id === 'bass').updatedAt,second);
+});
+
+test('booth results survive source failure and a cold start, then recover', async () => {
+  const row = {id:'bass',twoStatus:'reported',two:[{name:'A'},{name:'B'}]};
+  const oldTcp = {status:'ok',pair:row.two,booths:[{votes:[55,45]}]};
+  let cached, fail = false, tcp = oldTcp;
+  const opts = {
+    readBooths: async () => cached,
+    saveBooths: async (_, detail) => { cached = detail; },
+    fetchBooths: async () => {
+      if (fail) throw new Error('Temporary VEC failure');
+      return {status:'ok',at:'2026-11-28T07:00:00Z',booths:[{votes:[50,40]}],tcp};
+    },
+  };
+  const request = new Request('https://example.test/api/results?district=bass');
+  const create = () => api(async () => ({status:'ok',results:[row]}),opts);
+  assert.equal((await (await create()(request)).json()).status,'ok');
+  const cold = create();
+  fail = true;
+  const stale = await (await cold(request)).json();
+  assert.equal(stale.stale,true);
+  assert.deepEqual(stale.booths,cached.booths);
+  fail = false;
+  tcp = {status:'unavailable'};
+  assert.equal((await (await cold(request)).json()).tcp.stale,true);
+  tcp = {status:'withheld'};
+  assert.deepEqual((await (await cold(request)).json()).tcp,{status:'withheld'});
+  tcp = oldTcp;
+  const fresh = await (await cold(request)).json();
+  assert.equal(fresh.stale,undefined);
+  assert.deepEqual(fresh.tcp,oldTcp);
 });
 
 test('reads mixed-case live links, party-first TCP, and single-row booth headings', () => {

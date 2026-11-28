@@ -227,7 +227,7 @@ export const seatStages = ['leaning', 'likely', 'locked', 'declared'];
 export function seatOutlook(rows, { allowProjections = true } = {}) {
   const parties = new Map([...majorParties,'Other'].map(party => [party, {party, total:0, ...Object.fromEntries(seatStages.map(stage => [stage,[]]))}]));
   for (const row of rows) {
-    if (row.stale || (!allowProjections && !row.elected)) continue;
+    if (!row.elected && (row.stale || !allowProjections)) continue;
     const call = projectedParty(row,row.projection);
     if (!call?.candidate) continue;
     const stage = call.locked ? 'locked' : call.label.toLowerCase();
