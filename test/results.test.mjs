@@ -38,6 +38,29 @@ test('captures the official close-of-roll enrolment and keeps blanks distinct fr
   assert.equal(parseDistrict(enrolled.replace('49,984','—'),bass).enrolled,null);
 });
 
+test('reads mixed-case live links, party-first TCP, and single-row booth headings', () => {
+  const source = `${EXPECTED}/results-by-district/Caulfield-District-results`;
+  assert.equal(districtLinks(`<main>${link(source)}</main>`,EXPECTED).get('caulfield'),source);
+  const html = `<main><h1>Caulfield District results</h1><h3>Successful candidate</h3><p>The successful candidate's name will display here.</p>
+    <p class="list-item-title">Total enrolled voters:</p><p class="list-item-body">51,087</p>
+    ${resultTable('1st pref. votes',510,480).replace('ONE, A','ONE, A-B')}
+    <div><h3>Two candidate preferred results</h3><table><thead><tr><th>Party</th><th>Candidate</th><th>Preferred votes</th><th>% preferred votes</th></tr></thead>
+    <tbody><tr><td>Australian Labor Party</td><td>ONE, A-B</td><td>520</td><td>52.0%</td></tr><tr><td>Liberal</td><td>TWO, B</td><td>480</td><td>48.0%</td></tr></tbody></table></div>
+    <a href="${source}/Caulfield-District-results-by-voting-centre">Latest results by voting centre</a></main>`;
+  const district = parseDistrict(html,source);
+  assert.equal(district.enrolled,51087);
+  assert.equal(district.elected,null);
+  assert.equal(district.twoStatus,'reported');
+  assert.deepEqual(district.two.map(c => [c.name,c.votes]),[['ONE, A-B',520],['TWO, B',480]]);
+  assert.ok(district.boothUrl.endsWith('/Caulfield-District-results-by-voting-centre'));
+  const venuePage = (labels, counts) => `<main><table><thead><tr><th><a></a></th><th><a>ONE, A</a><div>Labor</div></th><th><a>TWO, B</a><div>Incorrect party metadata</div></th>${labels.map(label => `<th><a>${label}</a></th>`).join('')}</tr></thead><tbody><tr><th>Ordinary votes</th></tr><tr><th>Alma</th>${counts.map(n => `<td>${n}</td>`).join('')}</tr></tbody></table></main>`;
+  const fp = parseBooths(venuePage(['Informal votes','Total votes polled'],[10,20,1,31]),district.fp);
+  assert.deepEqual(fp.booths,[{name:'Alma',kind:'ordinary',votes:[10,20]}]);
+  const tcp = parseTcpBooths(venuePage(['Miss-sorts','Informal votes','Total votes polled'],[12,18,2,1,33]),district,fp.booths);
+  assert.deepEqual(tcp.pair.map(c => c.party),district.fp.map(c => c.party));
+  assert.deepEqual(tcp.booths,[{name:'Alma',kind:'ordinary',votes:[12,18]}]);
+});
+
 test('final preference distribution takes precedence over a conflicting indicative TCP', () => {
   const elected = '<h3>Elected member</h3><p><strong>ONE, A</strong></p>';
   const html = page(resultTable('Preferred votes',495,505), elected + resultTable('Votes after distribution',510,490));
